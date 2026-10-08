@@ -88,6 +88,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Misplaced configuration fields are now self-diagnosing. `CertConfig` written next to
+  `ControllerConfig` instead of inside it produced
+  `field CertConfig not found in type panel.NodesConfig`, which says what is wrong but
+  not where the field belongs; the error now adds
+  `hint: CertConfig is valid, but it does not belong under Nodes[]; nest it under
+  Nodes[].ControllerConfig`.
+- Decode errors now report the line number in the operator's own file. `Decode`
+  re-encoded the YAML before parsing (to drop retired fields), which sorted the keys and
+  made every reported line number point into the rewritten document. It only re-encodes
+  when something was actually removed.
+- The optional blocks in `config.template.yml` did not survive being uncommented: the
+  top-level block used `# Key:` so removing the `#` left a one-space indent, and top-level
+  keys must start at column 0 (`did not find expected key`); the two blocks were also in
+  an order that broke the 6-space node block. The indentation inside the comments is now
+  the real indentation, and `TestConfigTemplateOptionalBlocksStayValid` uncomments both
+  blocks and asserts the fields land at the right level.
 - `release/config/route.json` contained a rule with an empty `domain` list, which
   xray-core rejects with `this rule has no effective fields` when the instance is
   created. Users who enabled `RouteConfigPath` could not start the node at all.

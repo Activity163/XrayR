@@ -29,7 +29,7 @@ Nodes:
   # --------------------------------------------------------------------------
   # 节点 1 —— 下面这 4 行必须改成你自己的
   # --------------------------------------------------------------------------
-  - PanelType: "Xboard"                     # 面板类型，见下方说明
+  - PanelType: "Xboard"                     # 面板类型，见文末说明
     ApiConfig:
       ApiHost: "https://panel.example.com"  # ← 改这里：面板地址
       ApiKey: "CHANGE_ME"                   # ← 改这里：节点密钥
@@ -40,9 +40,100 @@ Nodes:
       ListenIP: 0.0.0.0                     # 监听地址，一般不用改
       UpdatePeriodic: 60                    # 多久同步一次面板（秒），不建议低于 30
 
+# ============================================================================
+#  以下是可选配置。注释里的缩进就是真实缩进 —— 想启用时**只删掉行首的 #**，
+#  不要改动后面的空格，否则字段会落到错误的层级（启动时会报
+#  "field XXX not found in type ..."）。
+# ============================================================================
+
 # ----------------------------------------------------------------------------
+#  节点内可选配置（缩进 6 空格，写在 ControllerConfig 下面 —— 和 ListenIP 同级）
+#
+#  注意顺序：这一段必须紧跟在 UpdatePeriodic 后面。下面「顶层可选配置」用的是
+#  0 缩进，会结束 Nodes 列表；把它放前面会让这一段的 6 缩进行解析失败。
+# ----------------------------------------------------------------------------
+#
+#      SendIP: 0.0.0.0                # 出站使用的源 IP
+#      EnableDNS: false               # 使用上面的 dns.json
+#      DNSType: AsIs                  # AsIs / UseIP / UseIPv4 / UseIPv6
+#      EnableProxyProtocol: false     # 仅 WebSocket 与 TCP 有效
+#      DisableGetRule: false          # 不同步面板的审计规则
+#      DisableUploadTraffic: false    # 不上报流量
+#      DisableSniffing: false         # 关闭流量嗅探
+#
+#      AutoSpeedLimitConfig:          # 超速自动限速
+#        Limit: 0                     # 触发阈值（Mbps），0 为关闭
+#        WarnTimes: 0                 # 警告几次后才限速，0 为立即限速
+#        LimitSpeed: 0                # 限速后的速度（Mbps）
+#        LimitDuration: 0             # 限速持续多少分钟
+#
+#      GlobalDeviceLimitConfig:       # 全局设备数限制（需要 Redis）
+#        Enable: false
+#        RedisNetwork: tcp            # tcp 或 unix
+#        RedisAddr: 127.0.0.1:6379
+#        RedisUsername:
+#        RedisPassword: YOUR_PASSWORD
+#        RedisDB: 0
+#        Timeout: 5
+#        Expiry: 60
+#
+#      EnableREALITY: false           # 启用 REALITY
+#      REALITYConfigs:
+#        Show: true
+#        Dest: "www.amazon.com:443"
+#        ServerNames:
+#          - www.amazon.com
+#        PrivateKey: YOUR_PRIVATE_KEY # 用 `XrayR x25519` 生成
+#        ShortIds:
+#          - ""
+#          - 0123456789abcdef
+#
+#      CertConfig:                    # TLS 证书
+#        CertMode: dns                # none / file / http / tls / dns；none 表示不启用 TLS
+#        CertDomain: "node1.example.com"
+#        CertFile: /etc/XrayR/cert/node1.example.com.cert   # CertMode 为 file 时使用
+#        KeyFile: /etc/XrayR/cert/node1.example.com.key
+#        Provider: cloudflare         # 完整列表见 https://go-acme.github.io/lego/dns/
+#        Email: you@example.com
+#        DNSEnv:                      # DNS provider 所需的凭据
+#          CF_API_EMAIL: you@example.com
+#          CF_API_KEY: YOUR_CLOUDFLARE_API_KEY
+#
+#      EnableFallback: false          # 回落，仅 Trojan 与 VLESS 支持
+#      FallBackConfigs:
+#        - SNI:                       # 留空表示任意
+#          Alpn:
+#          Path:
+#          Dest: 80                   # 必填
+#          ProxyProtocolVer: 0
+
+# ----------------------------------------------------------------------------
+#  顶层可选配置（和 ConfigVersion / Log / Nodes 同级，缩进 0）
+#
+#  注意：这一段的 # 后面**没有空格**，取消注释时只删掉 # 本身即可。
+#  顶层键必须在第 0 列，多一个空格就会报 "did not find expected key"。
+# ----------------------------------------------------------------------------
+#
+#ConnectionConfig:                # 连接超时与缓冲区，一般保持默认
+#  Handshake: 4                   # 握手超时（秒）
+#  ConnIdle: 30                   # 连接空闲超时（秒）
+#  UplinkOnly: 2                  # 上行关闭后的等待时间（秒）
+#  DownlinkOnly: 4                # 下行关闭后的等待时间（秒）
+#  BufferSize: 64                 # 每条连接的内部缓冲（kB）
+#
+#Cache:                           # 面板不可用时的本地快照
+#  Enable: true                   # 默认开启
+#  Path: /etc/XrayR/cache
+#  MaxAge: 86400                  # 快照有效期（秒）
+#
+#DnsConfigPath: /etc/XrayR/dns.json              # 见 https://xtls.github.io/config/dns.html
+#RouteConfigPath: /etc/XrayR/route.json          # 见 https://xtls.github.io/config/routing.html
+#InboundConfigPath: /etc/XrayR/custom_inbound.json
+#OutboundConfigPath: /etc/XrayR/custom_outbound.json
+
+# ============================================================================
 #  面板类型 PanelType 可选值
-# ----------------------------------------------------------------------------
+# ============================================================================
 #   Xboard / NewV2board / V2board   （三者等价，推荐写 Xboard）
 #   SSpanel
 #   PMpanel
@@ -53,9 +144,9 @@ Nodes:
 #
 #  写错不会静默失败：启动时会提示最接近的候选名称。
 #
-# ----------------------------------------------------------------------------
+# ============================================================================
 #  协议 NodeType 可选值
-# ----------------------------------------------------------------------------
+# ============================================================================
 #   V2ray                 VMess（EnableVless: true 时走 VLESS）
 #   Vmess / Vless         显式指定
 #   Trojan
@@ -64,81 +155,9 @@ Nodes:
 #
 #  注意：不是每个面板都支持全部协议，写错了启动时会明确报错。
 #
-# ----------------------------------------------------------------------------
+# ============================================================================
 #  需要第二个节点？
-# ----------------------------------------------------------------------------
-#  把 release/config/config.full.yml 里的节点块复制到这里（去掉行首的 #），
-#  改好 ApiHost / ApiKey / NodeID / NodeType 即可。一个 XrayR 实例可以同时
-#  对接多个面板、多个节点，不需要启动多个进程。
-#
-# ----------------------------------------------------------------------------
-#  以下是可选的高级配置，需要时再去掉注释
-# ----------------------------------------------------------------------------
-#
-# ConnectionConfig:                # 连接超时与缓冲区，一般保持默认
-#   Handshake: 4                   # 握手超时（秒）
-#   ConnIdle: 30                   # 连接空闲超时（秒）
-#   UplinkOnly: 2                  # 上行关闭后的等待时间（秒）
-#   DownlinkOnly: 4                # 下行关闭后的等待时间（秒）
-#   BufferSize: 64                 # 每条连接的内部缓冲（kB）
-#
-# DnsConfigPath: /etc/XrayR/dns.json              # 自定义 DNS，见 https://xtls.github.io/config/dns.html
-# RouteConfigPath: /etc/XrayR/route.json          # 自定义路由，见 https://xtls.github.io/config/routing.html
-# InboundConfigPath: /etc/XrayR/custom_inbound.json
-# OutboundConfigPath: /etc/XrayR/custom_outbound.json
-#
-# 节点块里还可以加这些（写在 ControllerConfig 下面）：
-#
-#   SendIP: 0.0.0.0                # 出站使用的源 IP
-#   EnableDNS: false               # 使用上面的 dns.json
-#   DNSType: AsIs                  # AsIs / UseIP / UseIPv4 / UseIPv6
-#   EnableProxyProtocol: false     # 仅 WebSocket 与 TCP 有效
-#   DisableGetRule: false          # 不同步面板的审计规则
-#   DisableUploadTraffic: false    # 不上报流量
-#   DisableSniffing: false         # 关闭流量嗅探
-#
-#   AutoSpeedLimitConfig:          # 超速自动限速
-#     Limit: 0                     # 触发阈值（Mbps），0 为关闭
-#     WarnTimes: 0                 # 警告几次后才限速，0 为立即限速
-#     LimitSpeed: 0                # 限速后的速度（Mbps）
-#     LimitDuration: 0             # 限速持续多少分钟
-#
-#   GlobalDeviceLimitConfig:       # 全局设备数限制（需要 Redis）
-#     Enable: false
-#     RedisNetwork: tcp            # tcp 或 unix
-#     RedisAddr: 127.0.0.1:6379
-#     RedisUsername:
-#     RedisPassword: YOUR_PASSWORD
-#     RedisDB: 0
-#     Timeout: 5
-#     Expiry: 60
-#
-#   EnableREALITY: false           # 启用 REALITY
-#   REALITYConfigs:
-#     Show: true
-#     Dest: www.amazon.com:443
-#     ServerNames:
-#       - www.amazon.com
-#     PrivateKey: YOUR_PRIVATE_KEY # 用 `XrayR x25519` 生成
-#     ShortIds:
-#       - ""
-#       - 0123456789abcdef
-#
-#   CertConfig:                    # TLS 证书
-#     CertMode: dns                # none / file / http / tls / dns；none 表示不启用 TLS
-#     CertDomain: "node1.example.com"
-#     CertFile: /etc/XrayR/cert/node1.example.com.cert   # CertMode 为 file 时使用
-#     KeyFile: /etc/XrayR/cert/node1.example.com.key
-#     Provider: alidns             # 完整列表见 https://go-acme.github.io/lego/dns/
-#     Email: you@example.com
-#     DNSEnv:                      # DNS provider 所需的凭据
-#       ALICLOUD_ACCESS_KEY: xxx
-#       ALICLOUD_SECRET_KEY: xxx
-#
-#   EnableFallback: false          # 回落，仅 Trojan 与 VLESS 支持
-#   FallBackConfigs:
-#     - SNI:                       # 留空表示任意
-#       Alpn:
-#       Path:
-#       Dest: 80                   # 必填
-#       ProxyProtocolVer: 0
+# ============================================================================
+#  把 release/config/config.full.yml 里的节点块复制到 Nodes: 下面（和现有节点同级，
+#  即 2 空格 + "- PanelType:"），改好 ApiHost / ApiKey / NodeID / NodeType 即可。
+#  一个 XrayR 实例可以同时对接多个面板、多个节点，不需要启动多个进程。
