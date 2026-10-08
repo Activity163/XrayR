@@ -160,6 +160,18 @@ bash release/download-rules-dat.sh /etc/XrayR
 [配置](docs/configuration.md)、[命令行](docs/cli.md)、[诊断](docs/diagnostics.md)、
 [可观测性](docs/observability.md)、[迁移](docs/migration.md)、[故障排查](docs/troubleshooting.md)。
 
+## 开发
+
+```bash
+go build ./... && go vet ./... && go test -race ./...
+golangci-lint run
+bash tools/e2e/run-e2e.sh      # 端到端：假面板 → 节点 → 真客户端 → 真流量
+```
+
+`tools/e2e/run-e2e.sh` 不需要真实面板，也不需要外网：它起一个 Xboard 桩面板，
+用真 xray-core 客户端把流量打穿节点（`curl → socks → VMess/WS → 节点 → freedom → 本地 HTTP 服务`），
+并验证面板改端口时节点会平滑迁移、下发无法应用的配置时会回滚。CI 每次都会跑。
+
 ## Thanks
 
 * [Project X](https://github.com/XTLS/)

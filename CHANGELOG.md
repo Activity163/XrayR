@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `tools/e2e/run-e2e.sh`: end-to-end test with no real panel. It stands up a stub
+  Xboard panel, pushes real traffic through the node with a real xray-core client
+  (`curl -> socks -> VMess/WS -> node -> freedom -> local HTTP server`), and checks
+  that the node moves its listener when the panel changes the port and rolls back
+  when a config cannot be applied. Entirely local, so it needs no secrets and no
+  network. Now runs in CI.
 - `release/install.sh`: one-click installer for Debian. Detects the architecture and
   Debian release, installs the required packages, builds from source (installing Go
   when missing) or unpacks a prebuilt release, creates `/etc/XrayR`, downloads the
