@@ -29,12 +29,16 @@ jobs:
       - run: pip install -r requirements-docs.txt
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && vars.ENABLE_PAGES == 'true'
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push'
+    # Publishing to GitHub Pages needs Pages enabled and a `github-pages`
+    # environment, which a fork usually does not have. Opt in by setting the
+    # repository variable ENABLE_PAGES to true; the build job always runs, so the
+    # docs are still validated either way.
+    if: github.event_name == 'push' && vars.ENABLE_PAGES == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:
