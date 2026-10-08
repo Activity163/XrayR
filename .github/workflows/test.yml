@@ -22,8 +22,14 @@ jobs:
         run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './.git/*' -not -path './.claude/*'))"
       - name: Unit tests
         run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
       - name: Vet
         run: go vet ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.14.0
       - name: Build
         run: go build ./...
       - name: Validate configuration templates
@@ -31,6 +37,10 @@ jobs:
           go run . config check -c release/config/config.minimal.yml
           go run . config check -c release/config/config.yml.example
           go run . config check -c release/config/config.full.yml
+      - name: Validate the routing template against real rule data
+        run: |
+          bash release/download-rules-dat.sh ./rules
+          RULES_DAT_DIR=./rules go test ./panel/ -run TestRuleDataLoads -v
 
   integration:
     if: github.event_name == 'workflow_dispatch'
