@@ -42,7 +42,7 @@ jobs:
       - name: Validate the routing template against real rule data
         run: |
           bash release/download-rules-dat.sh ./rules
-          RULES_DAT_DIR=./rules go test ./panel/ -run TestRuleDataLoads -v
+          RULES_DAT_DIR="$PWD/rules" go test ./panel/ -run TestRuleDataLoads -v
 
   integration:
     if: github.event_name == 'workflow_dispatch'

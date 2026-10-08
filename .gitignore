@@ -25,6 +25,7 @@ site/
 # Rule data is downloaded on every install by release/download-rules-dat.sh
 release/config/*.dat
 release/config/*.dat.tmp
+/rules/
 
 # Local WorkBuddy workspace data
 .workbuddy-ai/
