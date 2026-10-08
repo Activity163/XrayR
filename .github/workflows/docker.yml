@@ -4,6 +4,14 @@ on:
     types:
       - published
   workflow_dispatch:
+
+# Pushing an image to GHCR needs packages: write. Without an explicit block the job
+# gets the repository default, which is read-only on a fork -- docker login still
+# succeeds, and the push then fails with a permission error.
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ghcr.io
 
