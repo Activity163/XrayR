@@ -1,16 +1,11 @@
 package proxypanel
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/go-resty/resty/v2"
 
@@ -34,23 +29,9 @@ type APIClient struct {
 // New creat a api instance
 func New(apiConfig *api.Config) *APIClient {
 
-	client := resty.New()
-	client.SetRetryCount(3)
-	if apiConfig.Timeout > 0 {
-		client.SetTimeout(time.Duration(apiConfig.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(5 * time.Second)
-	}
-	client.OnError(func(req *resty.Request, err error) {
-		if v, ok := err.(*resty.ResponseError); ok {
-			// v.Response contains the last response from the server
-			// v.Err contains the original error
-			log.Print(v.Err)
-		}
-	})
-	client.SetBaseURL(apiConfig.APIHost)
+	client := api.NewHTTPClient(apiConfig)
 	// Read local rule list
-	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
+	localRuleList := api.ReadLocalRuleList(apiConfig.RuleListPath)
 	apiClient := &APIClient{
 		client:        client,
 		NodeID:        apiConfig.NodeID,
@@ -66,41 +47,6 @@ func New(apiConfig *api.Config) *APIClient {
 	return apiClient
 }
 
-// readLocalRuleList reads the local rule list file
-func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
-
-	LocalRuleList = make([]api.DetectRule, 0)
-	if path != "" {
-		// open the file
-		file, err := os.Open(path)
-
-		// handle errors while opening
-		if err != nil {
-			log.Printf("Error when opening file: %s", err)
-			return LocalRuleList
-		}
-
-		fileScanner := bufio.NewScanner(file)
-
-		// read line by line
-		for fileScanner.Scan() {
-			LocalRuleList = append(LocalRuleList, api.DetectRule{
-				ID:      -1,
-				Pattern: regexp.MustCompile(fileScanner.Text()),
-			})
-		}
-		// handle first encountered error while reading
-		if err := fileScanner.Err(); err != nil {
-			log.Fatalf("Error while reading file: %s", err)
-			return
-		}
-
-		file.Close()
-	}
-
-	return LocalRuleList
-}
-
 // Describe return a description of the client
 func (c *APIClient) Describe() api.ClientInfo {
 	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
@@ -109,10 +55,6 @@ func (c *APIClient) Describe() api.ClientInfo {
 // Debug set the client debug for client
 func (c *APIClient) Debug() {
 	c.client.SetDebug(true)
-}
-
-func (c *APIClient) assembleURL(path string) string {
-	return c.APIHost + path
 }
 
 func (c *APIClient) createCommonRequest() *resty.Request {
@@ -124,17 +66,13 @@ func (c *APIClient) createCommonRequest() *resty.Request {
 }
 
 func (c *APIClient) parseResponse(res *resty.Response, path string, err error) (*Response, error) {
-	statusCode := 0
-	if res != nil {
-		statusCode = res.StatusCode()
-	}
-	if err != nil || statusCode >= 400 {
-		return nil, api.ClassifyError(path, "Proxypanel", c.NodeID, statusCode, err)
+	if err := api.CheckResponse(res, path, "Proxypanel", c.NodeID, err); err != nil {
+		return nil, err
 	}
 	response := res.Result().(*Response)
 
 	if response.Status != "success" {
-		return nil, api.ClassifyError(path, "Proxypanel", c.NodeID, statusCode, fmt.Errorf("invalid response status"))
+		return nil, api.ClassifyError(path, "Proxypanel", c.NodeID, res.StatusCode(), fmt.Errorf("invalid response status"))
 	}
 	return response, nil
 }
@@ -205,7 +143,7 @@ func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 	if err != nil {
 		return nil, err
 	}
-	userList := new([]api.UserInfo)
+	var userList *[]api.UserInfo
 	switch c.NodeType {
 	case "V2ray", "Vmess", "Vless":
 		userList, err = c.ParseV2rayUserListResponse(&response.Data)
@@ -363,10 +301,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	} else {
 		for _, r := range ruleListResponse.Rules {
 			if r.Type == "reg" {
-				ruleList = append(ruleList, api.DetectRule{
-					ID:      r.ID,
-					Pattern: regexp.MustCompile(r.Pattern),
-				})
+				ruleList = api.AppendRule(ruleList, r.ID, r.Pattern)
 			}
 
 		}
@@ -411,7 +346,7 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 
 // ParseV2rayNodeResponse parse the response for the given nodeinfor format
 func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *json.RawMessage) (*api.NodeInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	v2rayNodeInfo := new(V2rayNodeInfo)
 	if err := json.Unmarshal(*nodeInfoResponse, v2rayNodeInfo); err != nil {
@@ -449,7 +384,7 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *json.RawMessage) (*
 
 // ParseSSNodeResponse parse the response for the given nodeinfor format
 func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *json.RawMessage) (*api.NodeInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 	shadowsocksNodeInfo := new(ShadowsocksNodeInfo)
 	if err := json.Unmarshal(*nodeInfoResponse, shadowsocksNodeInfo); err != nil {
 		return nil, fmt.Errorf("unmarshal %s failed: %s", reflect.TypeOf(*nodeInfoResponse), err)
@@ -478,7 +413,7 @@ func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *json.RawMessage) (*api
 
 // ParseTrojanNodeResponse parse the response for the given nodeinfor format
 func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *json.RawMessage) (*api.NodeInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	trojanNodeInfo := new(TrojanNodeInfo)
 	if err := json.Unmarshal(*nodeInfoResponse, trojanNodeInfo); err != nil {
@@ -509,7 +444,7 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *json.RawMessage) (
 
 // ParseV2rayUserListResponse parse the response for the given userinfo format
 func (c *APIClient) ParseV2rayUserListResponse(userInfoResponse *json.RawMessage) (*[]api.UserInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	vmessUserList := new([]*VMessUser)
 	if err := json.Unmarshal(*userInfoResponse, vmessUserList); err != nil {
@@ -537,7 +472,7 @@ func (c *APIClient) ParseV2rayUserListResponse(userInfoResponse *json.RawMessage
 
 // ParseTrojanUserListResponse parse the response for the given userinfo format
 func (c *APIClient) ParseTrojanUserListResponse(userInfoResponse *json.RawMessage) (*[]api.UserInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	trojanUserList := new([]*TrojanUser)
 	if err := json.Unmarshal(*userInfoResponse, trojanUserList); err != nil {
@@ -565,7 +500,7 @@ func (c *APIClient) ParseTrojanUserListResponse(userInfoResponse *json.RawMessag
 
 // ParseSSUserListResponse parse the response for the given userinfo format
 func (c *APIClient) ParseSSUserListResponse(userInfoResponse *json.RawMessage) (*[]api.UserInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	ssUserList := new([]*SSUser)
 	if err := json.Unmarshal(*userInfoResponse, ssUserList); err != nil {

@@ -9,6 +9,14 @@ import (
 
 type ErrorKind string
 
+// Sentinel errors returned by adapters when a panel answers "not modified".
+// Callers must compare them with errors.Is rather than by string equality.
+var (
+	ErrUserNotModified = errors.New("users not modified")
+	ErrNodeNotModified = errors.New("node not modified")
+	ErrRuleNotModified = errors.New("rules not modified")
+)
+
 const (
 	ErrorNetwork        ErrorKind = "network"
 	ErrorTimeout        ErrorKind = "timeout"

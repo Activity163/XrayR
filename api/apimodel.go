@@ -7,12 +7,6 @@ import (
 	"github.com/xtls/xray-core/infra/conf"
 )
 
-const (
-	UserNotModified = "users not modified"
-	NodeNotModified = "node not modified"
-	RuleNotModified = "rules not modified"
-)
-
 // Config API config
 type Config struct {
 	APIHost             string  `mapstructure:"ApiHost" json:"ApiHost" yaml:"ApiHost"`

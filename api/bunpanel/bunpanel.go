@@ -1,19 +1,12 @@
 package bunpanel
 
 import (
-	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/go-resty/resty/v2"
 
@@ -53,21 +46,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 }
 
 func New(apiConfig *api.Config) *APIClient {
-	client := resty.New()
-	client.SetRetryCount(3)
-	if apiConfig.Timeout > 0 {
-		client.SetTimeout(time.Duration(apiConfig.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(5 * time.Second)
-	}
-	client.OnError(func(req *resty.Request, err error) {
-		if v, ok := err.(*resty.ResponseError); ok {
-			// v.Response contains the last response from the server
-			// v.Err contains the original error
-			log.Print(v.Err)
-		}
-	})
-	client.SetBaseURL(apiConfig.APIHost)
+	client := api.NewHTTPClient(apiConfig)
 	// Create Key for each requests
 	client.SetQueryParams(map[string]string{
 		"serverId": strconv.Itoa(apiConfig.NodeID),
@@ -75,7 +54,7 @@ func New(apiConfig *api.Config) *APIClient {
 		"token":    apiConfig.Key,
 	})
 	// Read local rule list
-	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
+	localRuleList := api.ReadLocalRuleList(apiConfig.RuleListPath)
 	apiClient := &APIClient{
 		client:        client,
 		NodeID:        apiConfig.NodeID,
@@ -92,39 +71,6 @@ func New(apiConfig *api.Config) *APIClient {
 	return apiClient
 }
 
-// readLocalRuleList reads the local rule list file
-func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
-	LocalRuleList = make([]api.DetectRule, 0)
-
-	if path != "" {
-		// open the file
-		file, err := os.Open(path)
-
-		// handle errors while opening
-		if err != nil {
-			log.Printf("Error when opening file: %s", err)
-			return LocalRuleList
-		}
-		defer file.Close()
-		fileScanner := bufio.NewScanner(file)
-
-		// read line by line
-		for fileScanner.Scan() {
-			LocalRuleList = append(LocalRuleList, api.DetectRule{
-				ID:      -1,
-				Pattern: regexp.MustCompile(fileScanner.Text()),
-			})
-		}
-		// handle first encountered error while reading
-		if err := fileScanner.Err(); err != nil {
-			log.Fatalf("Error while reading file: %s", err)
-			return
-		}
-	}
-
-	return LocalRuleList
-}
-
 // Describe return a description of the client
 func (c *APIClient) Describe() api.ClientInfo {
 	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
@@ -135,22 +81,14 @@ func (c *APIClient) Debug() {
 	c.client.SetDebug(true)
 }
 
-func (c *APIClient) assembleURL(path string) string {
-	return c.APIHost + path
-}
-
 func (c *APIClient) parseResponse(res *resty.Response, path string, err error) (*Response, error) {
-	statusCode := 0
-	if res != nil {
-		statusCode = res.StatusCode()
-	}
-	if err != nil || statusCode >= 400 {
-		return nil, api.ClassifyError(path, "BunPanel", c.NodeID, statusCode, err)
+	if err := api.CheckResponse(res, path, "BunPanel", c.NodeID, err); err != nil {
+		return nil, err
 	}
 	response := res.Result().(*Response)
 
 	if response.StatusCode != 200 {
-		return nil, api.ClassifyError(path, "BunPanel", c.NodeID, statusCode, fmt.Errorf("invalid response status"))
+		return nil, api.ClassifyError(path, "BunPanel", c.NodeID, res.StatusCode(), fmt.Errorf("invalid response status"))
 	}
 	return response, nil
 }
@@ -164,7 +102,7 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 		Get(path)
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
-		return nil, errors.New(api.NodeNotModified)
+		return nil, api.ErrNodeNotModified
 	}
 
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["node"] {
@@ -206,7 +144,7 @@ func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 		Get(path)
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
-		return nil, errors.New(api.UserNotModified)
+		return nil, api.ErrUserNotModified
 	}
 
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["users"] {
@@ -293,8 +231,8 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]User) (*[]api.User
 		c.access.Unlock()
 	}()
 
-	var deviceLimit, localDeviceLimit = 0, 0
-	var speedLimit uint64 = 0
+	var deviceLimit, localDeviceLimit int
+	var speedLimit uint64
 	var userList []api.UserInfo
 	for _, user := range *userInfoResponse {
 		if c.DeviceLimit > 0 {
@@ -366,7 +304,6 @@ func (c *APIClient) ParseNodeInfo(nodeInfoResponse *Server) (*api.NodeInfo, erro
 		}
 	case "Trojan":
 		enableTLS = true
-		tlsType = "tls"
 		transportProtocol = "tcp"
 	}
 

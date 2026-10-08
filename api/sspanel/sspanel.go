@@ -1,17 +1,14 @@
 package sspanel
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -47,30 +44,14 @@ type APIClient struct {
 
 // New create api instance
 func New(apiConfig *api.Config) *APIClient {
-	client := resty.New()
+	client := api.NewHTTPClient(apiConfig)
 
-	client.SetRetryCount(3)
-	if apiConfig.Timeout > 0 {
-		client.SetTimeout(time.Duration(apiConfig.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(5 * time.Second)
-	}
-	client.OnError(func(req *resty.Request, err error) {
-		var v *resty.ResponseError
-		if errors.As(err, &v) {
-			// v.Response contains the last response from the server
-			// v.Err contains the original error
-			log.Print(v.Err)
-		}
-	})
-
-	client.SetBaseURL(apiConfig.APIHost)
 	// Create Key for each requests
 	client.SetQueryParam("key", apiConfig.Key)
 	// Add support for muKey
 	client.SetQueryParam("muKey", apiConfig.Key)
 	// Read local rule list
-	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
+	localRuleList := api.ReadLocalRuleList(apiConfig.RuleListPath)
 
 	return &APIClient{
 		client:              client,
@@ -89,44 +70,6 @@ func New(apiConfig *api.Config) *APIClient {
 	}
 }
 
-// readLocalRuleList reads the local rule list file
-func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
-	LocalRuleList = make([]api.DetectRule, 0)
-	if path != "" {
-		// open the file
-		file, err := os.Open(path)
-
-		defer func(file *os.File) {
-			err := file.Close()
-			if err != nil {
-				log.Printf("Error when closing file: %s", err)
-			}
-		}(file)
-		// handle errors while opening
-		if err != nil {
-			log.Printf("Error when opening file: %s", err)
-			return LocalRuleList
-		}
-
-		fileScanner := bufio.NewScanner(file)
-
-		// read line by line
-		for fileScanner.Scan() {
-			LocalRuleList = append(LocalRuleList, api.DetectRule{
-				ID:      -1,
-				Pattern: regexp.MustCompile(fileScanner.Text()),
-			})
-		}
-		// handle first encountered error while reading
-		if err := fileScanner.Err(); err != nil {
-			log.Fatalf("Error while reading file: %s", err)
-			return
-		}
-	}
-
-	return LocalRuleList
-}
-
 // Describe return a description of the client
 func (c *APIClient) Describe() api.ClientInfo {
 	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
@@ -137,22 +80,14 @@ func (c *APIClient) Debug() {
 	c.client.SetDebug(true)
 }
 
-func (c *APIClient) assembleURL(path string) string {
-	return c.APIHost + path
-}
-
 func (c *APIClient) parseResponse(res *resty.Response, path string, err error) (*Response, error) {
-	statusCode := 0
-	if res != nil {
-		statusCode = res.StatusCode()
-	}
-	if err != nil || statusCode >= 400 {
-		return nil, api.ClassifyError(path, "SSpanel", c.NodeID, statusCode, err)
+	if err := api.CheckResponse(res, path, "SSpanel", c.NodeID, err); err != nil {
+		return nil, err
 	}
 	response := res.Result().(*Response)
 
 	if response.Ret != 1 {
-		return nil, api.ClassifyError(path, "SSpanel", c.NodeID, statusCode, fmt.Errorf("invalid response status"))
+		return nil, api.ClassifyError(path, "SSpanel", c.NodeID, res.StatusCode(), fmt.Errorf("invalid response status"))
 	}
 	return response, nil
 }
@@ -167,7 +102,7 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 		Get(path)
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
-		return nil, errors.New(api.NodeNotModified)
+		return nil, api.ErrNodeNotModified
 	}
 
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["node"] {
@@ -236,7 +171,7 @@ func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 		Get(path)
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
-		return nil, errors.New(api.UserNotModified)
+		return nil, api.ErrUserNotModified
 	}
 
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["users"] {
@@ -353,7 +288,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
-		return nil, errors.New(api.RuleNotModified)
+		return nil, api.ErrRuleNotModified
 	}
 
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["rules"] {
@@ -372,10 +307,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	}
 
 	for _, r := range *ruleListResponse {
-		ruleList = append(ruleList, api.DetectRule{
-			ID:      r.ID,
-			Pattern: regexp.MustCompile(r.Content),
-		})
+		ruleList = api.AppendRule(ruleList, r.ID, r.Content)
 	}
 	return &ruleList, nil
 }
@@ -410,7 +342,7 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 	var enableTLS bool
 	var path, host, transportProtocol, serviceName, HeaderType string
 	var header json.RawMessage
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 	if nodeInfoResponse.RawServerString == "" {
 		return nil, fmt.Errorf("no server info in response")
 	}
@@ -499,7 +431,7 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 // ParseSSNodeResponse parse the response for the given node info format
 func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var port uint32 = 0
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 	var method string
 	path := "/mod_mu/users"
 	res, err := c.client.R().
@@ -546,7 +478,7 @@ func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*ap
 func (c *APIClient) ParseSSPluginNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var enableTLS bool
 	var path, host, transportProtocol string
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	serverConf := strings.Split(nodeInfoResponse.RawServerString, ";")
 	parsedPort, err := strconv.ParseInt(serverConf[1], 10, 32)
@@ -612,7 +544,7 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 	// 域名或IP;port=连接端口#偏移端口|host=xx
 	// gz.aaa.com;port=443#12345|host=hk.aaa.com
 	var p, host, outsidePort, insidePort, transportProtocol, serviceName string
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	if nodeInfoResponse.RawServerString == "" {
 		return nil, fmt.Errorf("no server info in response")
@@ -687,8 +619,8 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]
 		c.access.Unlock()
 	}()
 
-	var deviceLimit, localDeviceLimit = 0, 0
-	var speedLimit uint64 = 0
+	var deviceLimit, localDeviceLimit int
+	var speedLimit uint64
 	var userList []api.UserInfo
 	for _, user := range *userInfoResponse {
 		if c.DeviceLimit > 0 {
@@ -738,9 +670,9 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]
 // Only available for SSPanel version >= 2021.11
 func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var (
-		speedLimit             uint64 = 0
+		speedLimit             uint64
 		enableTLS, enableVless bool
-		alterID                uint16 = 0
+		alterID                uint16
 		transportProtocol      string
 	)
 

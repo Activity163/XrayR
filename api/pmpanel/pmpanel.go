@@ -1,16 +1,10 @@
 package pmpanel
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
-	"regexp"
 	"strconv"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/go-resty/resty/v2"
 
@@ -34,27 +28,13 @@ type APIClient struct {
 // New creat a api instance
 func New(apiConfig *api.Config) *APIClient {
 
-	client := resty.New()
-	client.SetRetryCount(3)
-	if apiConfig.Timeout > 0 {
-		client.SetTimeout(time.Duration(apiConfig.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(5 * time.Second)
-	}
-	client.OnError(func(req *resty.Request, err error) {
-		if v, ok := err.(*resty.ResponseError); ok {
-			// v.Response contains the last response from the server
-			// v.Err contains the original error
-			log.Print(v.Err)
-		}
-	})
-	client.SetBaseURL(apiConfig.APIHost)
+	client := api.NewHTTPClient(apiConfig)
 	// Create Key for each requests
 	client.SetHeaders(map[string]string{
 		"key": apiConfig.Key,
 	})
 	// Read local rule list
-	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
+	localRuleList := api.ReadLocalRuleList(apiConfig.RuleListPath)
 	apiClient := &APIClient{
 		client:        client,
 		NodeID:        apiConfig.NodeID,
@@ -70,41 +50,6 @@ func New(apiConfig *api.Config) *APIClient {
 	return apiClient
 }
 
-// readLocalRuleList reads the local rule list file
-func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
-
-	LocalRuleList = make([]api.DetectRule, 0)
-	if path != "" {
-		// open the file
-		file, err := os.Open(path)
-
-		// handle errors while opening
-		if err != nil {
-			log.Printf("Error when opening file: %s", err)
-			return LocalRuleList
-		}
-
-		fileScanner := bufio.NewScanner(file)
-
-		// read line by line
-		for fileScanner.Scan() {
-			LocalRuleList = append(LocalRuleList, api.DetectRule{
-				ID:      -1,
-				Pattern: regexp.MustCompile(fileScanner.Text()),
-			})
-		}
-		// handle first encountered error while reading
-		if err := fileScanner.Err(); err != nil {
-			log.Fatalf("Error while reading file: %s", err)
-			return
-		}
-
-		file.Close()
-	}
-
-	return LocalRuleList
-}
-
 // Describe return a description of the client
 func (c *APIClient) Describe() api.ClientInfo {
 	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
@@ -115,30 +60,22 @@ func (c *APIClient) Debug() {
 	c.client.SetDebug(true)
 }
 
-func (c *APIClient) assembleURL(path string) string {
-	return c.APIHost + path
-}
-
 func (c *APIClient) parseResponse(res *resty.Response, path string, err error) (*Response, error) {
-	statusCode := 0
-	if res != nil {
-		statusCode = res.StatusCode()
-	}
-	if err != nil || statusCode >= 400 {
-		return nil, api.ClassifyError(path, "PMpanel", c.NodeID, statusCode, err)
+	if err := api.CheckResponse(res, path, "PMpanel", c.NodeID, err); err != nil {
+		return nil, err
 	}
 	response := res.Result().(*Response)
 
 	if response.Ret != 200 {
-		return nil, api.ClassifyError(path, "PMpanel", c.NodeID, statusCode, fmt.Errorf("invalid response status"))
+		return nil, api.ClassifyError(path, "PMpanel", c.NodeID, res.StatusCode(), fmt.Errorf("invalid response status"))
 	}
 	return response, nil
 }
 
 // GetNodeInfo will pull NodeInfo Config from sspanel
 func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
-	path := fmt.Sprintf("/api/node")
-	var nodeType = ""
+	path := "/api/node"
+	var nodeType string
 	switch c.NodeType {
 	case "Shadowsocks":
 		nodeType = "ss"
@@ -182,7 +119,7 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 
 	if err != nil {
 		res, _ := json.Marshal(nodeInfoResponse)
-		return nil, fmt.Errorf("Parse node info failed: %s, \nError: %s", string(res), err)
+		return nil, fmt.Errorf("parse node info failed: %s, \nError: %s", string(res), err)
 	}
 
 	return nodeInfo, nil
@@ -191,7 +128,7 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 // GetUserList will pull user form sspanel
 func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 	path := "/api/users"
-	var nodeType = ""
+	var nodeType string
 	switch c.NodeType {
 	case "Shadowsocks":
 		nodeType = "ss"
@@ -236,7 +173,7 @@ func (c *APIClient) ReportNodeStatus(nodeStatus *api.NodeStatus) (err error) {
 
 // ReportNodeOnlineUsers reports online user ip
 func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) error {
-	var nodeType = ""
+	var nodeType string
 	switch c.NodeType {
 	case "Shadowsocks":
 		nodeType = "ss"
@@ -270,7 +207,7 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 
 // ReportUserTraffic reports the user traffic
 func (c *APIClient) ReportUserTraffic(userTraffic *[]api.UserTraffic) error {
-	var nodeType = ""
+	var nodeType string
 	switch c.NodeType {
 	case "Shadowsocks":
 		nodeType = "ss"
@@ -310,7 +247,7 @@ func (c *APIClient) ReportUserTraffic(userTraffic *[]api.UserTraffic) error {
 func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	ruleList := c.LocalRuleList
 	path := "/api/rules"
-	var nodeType = ""
+	var nodeType string
 	switch c.NodeType {
 	case "Shadowsocks":
 		nodeType = "ss"
@@ -342,10 +279,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	}
 
 	for _, r := range *ruleListResponse {
-		ruleList = append(ruleList, api.DetectRule{
-			ID:      r.ID,
-			Pattern: regexp.MustCompile(r.Content),
-		})
+		ruleList = api.AppendRule(ruleList, r.ID, r.Content)
 	}
 	return &ruleList, nil
 }
@@ -359,7 +293,7 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var enableTLS bool
 	var path, host, transportProtocol, serviceName string
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	port := nodeInfoResponse.Port
 	alterID := nodeInfoResponse.AlterId
@@ -406,7 +340,7 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 
 // ParseSSNodeResponse parse the response for the given nodeinfor format
 func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
-	var speedLimit uint64 = 0
+	var speedLimit uint64
 
 	if c.SpeedLimit > 0 {
 		speedLimit = uint64((c.SpeedLimit * 1000000) / 8)
@@ -432,7 +366,7 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 	// gz.aaa.com;port=443#12345|host=hk.aaa.com
 	var host string
 	var transportProtocol = "tcp"
-	var speedlimit uint64 = 0
+	var speedlimit uint64
 	host = nodeInfoResponse.Host
 	port := nodeInfoResponse.Port
 
@@ -461,8 +395,8 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 
 // ParseUserListResponse parse the response for the given nodeinfo format
 func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]api.UserInfo, error) {
-	var deviceLimit = 0
-	var speedLimit uint64 = 0
+	var deviceLimit int
+	var speedLimit uint64
 	userList := make([]api.UserInfo, len(*userInfoResponse))
 	for i, user := range *userInfoResponse {
 		if c.DeviceLimit > 0 {

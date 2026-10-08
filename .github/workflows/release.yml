@@ -152,18 +152,7 @@ jobs:
             cp ${GITHUB_WORKSPACE}/release/config/config.yml.example ./build_assets/config.yml
             cp ${GITHUB_WORKSPACE}/release/config/config.minimal.yml ./build_assets/config.minimal.yml
             cp ${GITHUB_WORKSPACE}/release/config/config.full.yml ./build_assets/config.full.yml
-            LIST=('geoip geoip geoip' 'domain-list-community dlc geosite')
-            for i in "${LIST[@]}"
-            do
-              INFO=($(echo $i | awk 'BEGIN{FS=" ";OFS=" "} {print $1,$2,$3}'))
-              DOWNLOAD_URL="https://raw.githubusercontent.com/v2fly/${INFO[0]}/release/${INFO[1]}.dat"
-              FILE_NAME="${INFO[2]}.dat"
-              echo -e "Downloading ${DOWNLOAD_URL}..."
-              curl -L "${DOWNLOAD_URL}" -o ./build_assets/${FILE_NAME}
-              echo -e "Verifying HASH key..."
-              HASH="$(curl -sL "${DOWNLOAD_URL}.sha256sum" | awk -F ' ' '{print $1}')"
-              [ "$(sha256sum "./build_assets/${FILE_NAME}" | awk -F ' ' '{print $1}')" == "${HASH}" ] || { echo -e "The HASH key of ${FILE_NAME} does not match cloud one."; exit 1; }
-            done
+            bash ${GITHUB_WORKSPACE}/release/download-rules-dat.sh ./build_assets
       - name: Create ZIP archive
         shell: bash
         run: |

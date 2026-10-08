@@ -1,13 +1,9 @@
 package gov2panel
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"os"
-	"regexp"
 	"time"
 
 	"github.com/XrayR-project/XrayR/api"
@@ -54,44 +50,9 @@ func New(apiConfig *api.Config) *APIClient {
 		RuleListPath:        apiConfig.RuleListPath,
 		DisableCustomConfig: apiConfig.DisableCustomConfig,
 
-		LocalRuleList: readLocalRuleList(apiConfig.RuleListPath), //加载本地路由规则
+		LocalRuleList: api.ReadLocalRuleList(apiConfig.RuleListPath), //加载本地路由规则
 	}
 	return apiClient
-}
-
-// readLocalRuleList reads the local rule list file
-func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
-
-	LocalRuleList = make([]api.DetectRule, 0)
-	if path != "" {
-		// open the file
-		file, err := os.Open(path)
-
-		// handle errors while opening
-		if err != nil {
-			log.Printf("Error when opening file: %s", err)
-			return LocalRuleList
-		}
-
-		fileScanner := bufio.NewScanner(file)
-
-		// read line by line
-		for fileScanner.Scan() {
-			LocalRuleList = append(LocalRuleList, api.DetectRule{
-				ID:      -1,
-				Pattern: regexp.MustCompile(fileScanner.Text()),
-			})
-		}
-		// handle first encountered error while reading
-		if err := fileScanner.Err(); err != nil {
-			log.Fatalf("Error while reading file: %s", err)
-			return
-		}
-
-		file.Close()
-	}
-
-	return LocalRuleList
 }
 
 func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
@@ -259,10 +220,7 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	for i := range routes {
 		if routes[i].Action == "block" {
 			for _, v := range routes[i].Match {
-				ruleList = append(ruleList, api.DetectRule{
-					ID:      i,
-					Pattern: regexp.MustCompile(v),
-				})
+				ruleList = api.AppendRule(ruleList, i, v)
 			}
 
 		}

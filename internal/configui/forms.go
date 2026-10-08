@@ -2,7 +2,6 @@ package configui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -216,11 +215,4 @@ func nodeSummary(node NodeState, index int) string {
 		host = "not configured"
 	}
 	return fmt.Sprintf("%d. %s / %s / node %s / %s", index+1, node.PanelType, node.NodeType, id, host)
-}
-
-func integerDescription(value string) string {
-	if _, err := strconv.Atoi(value); err != nil {
-		return "Invalid integer"
-	}
-	return ""
 }

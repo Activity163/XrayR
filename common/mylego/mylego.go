@@ -13,7 +13,7 @@ var defaultPath string
 
 func New(certConf *CertConfig) (*LegoCMD, error) {
 	// Set default path to configPath/cert
-	var p = ""
+	var p string
 	configPath := os.Getenv("XRAY_LOCATION_CONFIG")
 	if configPath != "" {
 		p = configPath
@@ -30,14 +30,6 @@ func New(certConf *CertConfig) (*LegoCMD, error) {
 	}
 
 	return lego, nil
-}
-
-func (l *LegoCMD) getPath() string {
-	return l.path
-}
-
-func (l *LegoCMD) getCertConfig() *CertConfig {
-	return l.C
 }
 
 // DNSCert cert a domain using DNS API
