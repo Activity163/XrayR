@@ -102,18 +102,31 @@ curl -fsSL https://raw.githubusercontent.com/Activity163/XrayR/master/release/in
 sudo bash install.sh
 ```
 
-脚本会检测架构与 Debian 版本，安装依赖，编译或下载 XrayR，创建 `/etc/XrayR`，
-下载 `geoip.dat` / `geosite.dat` 并校验 sha256，安装 systemd 单元，然后启用并启动服务。
+不带参数运行会打开管理菜单：
 
-```bash
-sudo bash install.sh --init            # 安装后直接进入配置向导
-sudo bash install.sh --release         # 使用预编译 release 包（若存在）
-sudo bash install.sh --source-dir /root/XrayR   # 用已有 checkout 编译
-sudo bash install.sh --no-start        # 只安装，不启动
-sudo bash install.sh --uninstall       # 卸载（加 --purge 同时删除配置目录）
+```
+  1) 安装 / 重装（二进制 + systemd）      7) 查看日志
+  2) 安装 / 重装（Docker）                8) 编辑配置
+  3) 启动                                9) 校验配置
+  4) 停止                               10) 更新到最新版本
+  5) 重启                               11) 开机自启 开 / 关
+  6) 查看状态                           12) 卸载
 ```
 
-在仓库内可直接 `sudo bash release/install.sh`。完整参数见 `bash install.sh --help`。
+安装会把自身装成 `xrayr` 命令，之后随时 `xrayr menu` 打开菜单，也可用子命令：
+`xrayr start|stop|restart|status|logs|edit|check|update|enable|disable|uninstall`。
+
+**安装不会自动启动服务。** 装完只做三件事：
+
+```bash
+xrayr edit      # 改配置里的 ApiHost / ApiKey / NodeID / NodeType
+xrayr check     # 校验配置
+xrayr start     # 启动（会等服务稳定运行，失败时直接打日志）
+```
+
+安装时生成 `/etc/XrayR/config.yml` —— **一份带完整注释的模板**，
+只有 4 个字段需要改（面板地址、密钥、节点 ID、协议），其余是可选的，
+默认注释掉。不用来回查文档。
 
 ### 从源码编译
 
@@ -127,8 +140,10 @@ go build -trimpath -ldflags "-s -w" -o XrayR .
 
 ### 使用 Docker 部署
 
+菜单第 2 项（或 `xrayr docker`）会自动拉镜像、生成配置、挂载规则数据并启动容器：
+
 ```bash
-docker run -d --name xrayr --network host \
+docker run -d --name xrayr --network host --restart unless-stopped \
   -v /etc/XrayR/config.yml:/etc/XrayR/config.yml:ro \
   -v /etc/XrayR/cache:/etc/XrayR/cache \
   ghcr.io/xrayr-project/xrayr:latest

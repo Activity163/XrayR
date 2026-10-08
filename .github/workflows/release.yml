@@ -152,6 +152,9 @@ jobs:
             cp ${GITHUB_WORKSPACE}/release/config/config.yml.example ./build_assets/config.yml
             cp ${GITHUB_WORKSPACE}/release/config/config.minimal.yml ./build_assets/config.minimal.yml
             cp ${GITHUB_WORKSPACE}/release/config/config.full.yml ./build_assets/config.full.yml
+            cp ${GITHUB_WORKSPACE}/release/config/config.template.yml ./build_assets/config.template.yml
+            cp ${GITHUB_WORKSPACE}/release/install.sh ./build_assets/install.sh
+            cp ${GITHUB_WORKSPACE}/release/download-rules-dat.sh ./build_assets/download-rules-dat.sh
             bash ${GITHUB_WORKSPACE}/release/download-rules-dat.sh ./build_assets
       - name: Create ZIP archive
         shell: bash
