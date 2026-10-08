@@ -30,6 +30,8 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.14.0
+      - name: Shellcheck
+        run: shellcheck -S warning release/*.sh
       - name: Build
         run: go build ./...
       - name: Validate configuration templates

@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `release/install.sh`: one-click installer for Debian. Detects the architecture and
+  Debian release, installs the required packages, builds from source (installing Go
+  when missing) or unpacks a prebuilt release, creates `/etc/XrayR`, downloads the
+  rule data, installs the systemd unit, validates the configuration and starts the
+  service. Supports `--init`, `--release`, `--source-dir`, `--skip-rules`,
+  `--no-start` and `--uninstall [--purge]`, and is idempotent on re-run.
 - `release/download-rules-dat.sh`: downloads the latest `geoip.dat` / `geosite.dat`
   from [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)
   and verifies the published sha256 checksum.
@@ -20,8 +26,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `api/sspanel/offline_test.go`, `internal/snapshot/snapshot_test.go`,
   `internal/redact/redact_test.go`, `panel/ruledata_test.go`,
   `service/controller/state_race_test.go`.
-- CI now runs `go test -race ./...`, `golangci-lint run`, and validates
-  `release/config/route.json` against freshly downloaded rule data.
+- CI now runs `go test -race ./...`, `golangci-lint run`, `shellcheck` on
+  `release/*.sh`, and validates `release/config/route.json` against freshly
+  downloaded rule data.
 - `.golangci.yml`: conservative linter set (`govet`, `ineffassign`, `staticcheck`,
   `unused`, `gofmt`). `errcheck` is disabled with an explanation; enabling it is a
   follow-up.

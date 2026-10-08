@@ -95,6 +95,26 @@ systemctl enable --now XrayR
 
 ## 软件安装
 
+### 一键安装（Debian）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Activity163/XrayR/master/release/install.sh -o install.sh
+sudo bash install.sh
+```
+
+脚本会检测架构与 Debian 版本，安装依赖，编译或下载 XrayR，创建 `/etc/XrayR`，
+下载 `geoip.dat` / `geosite.dat` 并校验 sha256，安装 systemd 单元，然后启用并启动服务。
+
+```bash
+sudo bash install.sh --init            # 安装后直接进入配置向导
+sudo bash install.sh --release         # 使用预编译 release 包（若存在）
+sudo bash install.sh --source-dir /root/XrayR   # 用已有 checkout 编译
+sudo bash install.sh --no-start        # 只安装，不启动
+sudo bash install.sh --uninstall       # 卸载（加 --purge 同时删除配置目录）
+```
+
+在仓库内可直接 `sudo bash release/install.sh`。完整参数见 `bash install.sh --help`。
+
 ### 从源码编译
 
 需要 Go 1.25.3 或更高版本：
@@ -104,10 +124,6 @@ git clone https://github.com/Activity163/XrayR.git
 cd XrayR
 go build -trimpath -ldflags "-s -w" -o XrayR .
 ```
-
-### 预编译版本
-
-一键安装脚本与预编译包由 [XrayR-release](https://github.com/modusnyan/XrayR-release) 提供。
 
 ### 使用 Docker 部署
 

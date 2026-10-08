@@ -1,5 +1,42 @@
 # Installation
 
+## One-click install (Debian)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Activity163/XrayR/master/release/install.sh -o install.sh
+sudo bash install.sh
+```
+
+The script:
+
+1. detects the architecture and the Debian release,
+2. installs the packages it needs (`curl`, `ca-certificates`, `tar`, and `git` when
+   building from source),
+3. builds XrayR from source — installing Go 1.25.3 into `/usr/local/go` when missing —
+   or unpacks a prebuilt release archive,
+4. creates `/etc/XrayR`, copies the routing templates and downloads
+   `geoip.dat` / `geosite.dat` with a sha256 check,
+5. installs `release/systemd/XrayR.service` and reloads systemd,
+6. validates `/etc/XrayR/config.yml` and enables + starts the service.
+
+Useful flags (full list: `bash install.sh --help`):
+
+| Flag | Effect |
+|------|--------|
+| `--init` | run `XrayR config init` after installing |
+| `--release [TAG]` | use a prebuilt archive instead of building (default when one exists) |
+| `--build` | always build from source |
+| `--source-dir DIR` | build an existing checkout instead of cloning |
+| `--config-dir DIR` | put config and rule data somewhere other than `/etc/XrayR` |
+| `--skip-rules` | do not download the rule data |
+| `--no-start` | install everything but do not start the service |
+| `--uninstall [--purge]` | remove the binary and unit (`--purge` also removes the config dir) |
+
+Re-running the script upgrades the binary and leaves an existing `config.yml` and rule
+data untouched.
+
+## Manual install
+
 XrayR needs three things in the same directory: `config.yml`, and the
 `geoip.dat` / `geosite.dat` rule files.
 
@@ -15,7 +52,7 @@ bash release/download-rules-dat.sh <output_dir>
 
 The script uses `RULES_DAT_REPO` and `RULES_DAT_BASE_URL` for overrides.
 
-## Binary
+### Binary
 
 1. Install the binary and the systemd unit:
 
