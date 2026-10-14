@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A Shadowsocks node using `2022-blake3-chacha20-poly1305` died at startup with
+  `failed to build inbound handler for protocol shadowsocks > infra/conf:
+  shadowsocks 2022 (multi-user): only blake3-aes-*-gcm methods are supported`,
+  which names neither the cipher nor the replacement. XrayR always runs SS-2022 in
+  xray-core's multi-user mode, because it adds and removes one account per panel
+  user and only the multi-user inbound implements `proxy.UserManager`; that mode
+  accepts blake3-aes-*-gcm only, so the chacha20 variant can never work here.
+  `InboundBuilder` now rejects it up front and says which two ciphers do work.
+
 ## [1.0.0] - 2026-10-14
 
 1.0.0 narrows the project to a single supported panel. Xboard is the only adapter

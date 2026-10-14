@@ -107,6 +107,16 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		rand.Read(b)
 		randPasswd := hex.EncodeToString(b)
 		if C.Contains(shadowaead_2022.List, cipher) {
+			// The entry below is what puts xray-core into SS-2022 multi-user mode,
+			// which XrayR needs because it adds and removes one account per panel
+			// user and only the multi-user inbound implements proxy.UserManager.
+			// That mode accepts blake3-aes-*-gcm only; anything else fails deep
+			// inside xray-core with "shadowsocks 2022 (multi-user): only
+			// blake3-aes-*-gcm methods are supported", which says what is wrong
+			// but not what to change. Reject it here with the fix instead.
+			if !strings.Contains(cipher, "aes") {
+				return nil, fmt.Errorf("shadowsocks cipher %q cannot be used for a node: SS-2022 multi-user requires a blake3-aes-*-gcm method because every panel user needs their own key; use \"2022-blake3-aes-128-gcm\" or \"2022-blake3-aes-256-gcm\", or set the node to a non-2022 cipher", cipher)
+			}
 			proxySetting.Users = append(proxySetting.Users, &conf.ShadowsocksUserConfig{
 				Password: base64.StdEncoding.EncodeToString(b),
 			})
