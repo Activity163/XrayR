@@ -124,15 +124,22 @@ bash release/download-rules-dat.sh /etc/XrayR
 不想用脚本时：
 
 ```bash
-sudo install -m 0755 XrayR /usr/local/bin/XrayR
+sudo install -d /usr/local/lib/xrayr
+sudo install -m 0755 XrayR /usr/local/lib/xrayr/XrayR
+sudo install -d /usr/local/bin
+sudo install -m 0755 release/install.sh /usr/local/bin/xrayr
+sudo install -m 0755 release/install.sh /usr/local/bin/XrayR
 sudo mkdir -p /etc/XrayR/cache
 sudo install -m 0644 release/systemd/XrayR.service /etc/systemd/system/XrayR.service
 sudo install -m 0600 release/config/config.template.yml /etc/XrayR/config.yml
 sudo bash release/download-rules-dat.sh /etc/XrayR
 # 改配置
-XrayR config check -c /etc/XrayR/config.yml
+xrayr check
 sudo systemctl enable --now XrayR
 ```
+
+服务二进制放在 `/usr/local/lib/xrayr/`，不在 PATH 上：`/usr/local/bin` 里的 `xrayr` 与
+`XrayR` 都是管理脚本，两个名字大小写不敏感，都会把非管理子命令转发给真正的二进制。
 
 `/etc/XrayR/cache` 是必需的：`Cache` 默认开启，面板临时不可用时靠它恢复上一份有效配置。
 

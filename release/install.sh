@@ -23,9 +23,15 @@ GO_VERSION="${XRAYR_GO_VERSION:-1.25.3}"
 GO_ROOT="${XRAYR_GO_ROOT:-/usr/local/go}"
 
 INSTALL_DIR="/usr/local/bin"
+LIB_DIR="/usr/local/lib/xrayr"
 CONFIG_DIR="/etc/XrayR"
 SERVICE_PATH="/etc/systemd/system/XrayR.service"
 SERVICE_NAME="XrayR"
+# The service binary does not live on PATH: both `xrayr` and `XrayR` are the
+# management command, so typing either spelling opens the menu on a
+# case-sensitive filesystem.
+SERVICE_BIN="${LIB_DIR}/XrayR"
+MANAGER_NAMES="xrayr XrayR"
 SELF_PATH="/usr/local/bin/xrayr"
 CONTAINER_NAME="xrayr"
 DOCKER_IMAGE="${XRAYR_IMAGE:-ghcr.io/$(printf '%s' "${REPO_SLUG%%/*}" | tr '[:upper:]' '[:lower:]')/xrayr:latest}"
@@ -49,10 +55,12 @@ HAS_DOCKER=0
 INSTALLED_MODE=""
 
 if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
-    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'
-    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
+    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+    C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
 else
-    C_RESET=""; C_BOLD=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""
+    C_RESET=""; C_BOLD=""; C_DIM=""
+    C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_CYAN=""
 fi
 
 log()  { printf '%s==>%s %s\n' "$C_BLUE" "$C_RESET" "$*"; }
@@ -82,11 +90,15 @@ XrayR 安装与管理脚本（Debian）
   --source-dir DIR  用已有 checkout 编译
   --ref REF         克隆的 git ref（默认 master）
   --go-version VER  缺失时安装的 Go 版本（默认 1.25.3）
-  --install-dir DIR 二进制目录（默认 /usr/local/bin）
+  --install-dir DIR 管理命令目录（默认 /usr/local/bin）
+  --lib-dir DIR     服务二进制目录（默认 /usr/local/lib/xrayr）
   --config-dir DIR  配置目录（默认 /etc/XrayR）
   --skip-rules      不下载 geoip.dat / geosite.dat
   --skip-service    不安装 systemd 单元
   --purge           卸载时同时删除配置目录
+
+不是管理子命令的参数会原样转交给服务二进制，所以
+`xrayr config check`、`xrayr doctor`、`xrayr version`、`xrayr -c FILE` 都能直接用。
 EOF
 }
 
@@ -120,7 +132,7 @@ detect_platform() {
     # 当前是怎么装的？决定 start/stop/logs 走 systemd 还是 docker
     if [ "$HAS_DOCKER" -eq 1 ] && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
         INSTALLED_MODE="docker"
-    elif [ -x "${INSTALL_DIR}/XrayR" ]; then
+    elif [ -x "$SERVICE_BIN" ]; then
         INSTALLED_MODE="binary"
     else
         INSTALLED_MODE=""
@@ -194,9 +206,9 @@ release_asset_url() {
 release_exists() { curl -fsSLI -o /dev/null --max-time 20 "$(release_asset_url "$RELEASE_TAG")" 2>/dev/null; }
 
 install_binary_file() {
-    mkdir -p "$INSTALL_DIR"
-    install -m 0755 "$1" "${INSTALL_DIR}/XrayR"
-    ok "已安装 ${INSTALL_DIR}/XrayR（$("${INSTALL_DIR}/XrayR" version 2>/dev/null || echo '版本检查失败')）"
+    mkdir -p "$LIB_DIR"
+    install -m 0755 "$1" "$SERVICE_BIN"
+    ok "已安装服务二进制 ${SERVICE_BIN}（$("$SERVICE_BIN" version 2>/dev/null || echo '版本检查失败')）"
 }
 
 copy_support_files() { # copy_support_files <source-dir>
@@ -276,8 +288,8 @@ install_rules() {
 install_service_unit() {
     local unit="${WORKDIR}/XrayR.service"
     fetch_repo_file "release/systemd/XrayR.service" "$unit" || die "获取 systemd 单元失败"
-    if [ "$CONFIG_DIR" != "/etc/XrayR" ] || [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
-        sed -i -e "s#/etc/XrayR#${CONFIG_DIR}#g" -e "s#/usr/local/bin/XrayR#${INSTALL_DIR}/XrayR#g" "$unit"
+    if [ "$CONFIG_DIR" != "/etc/XrayR" ] || [ "$SERVICE_BIN" != "/usr/local/lib/xrayr/XrayR" ]; then
+        sed -i -e "s#/etc/XrayR#${CONFIG_DIR}#g" -e "s#/usr/local/lib/xrayr/XrayR#${SERVICE_BIN}#g" "$unit"
     fi
     install -m 0644 "$unit" "$SERVICE_PATH"
     if [ "$HAS_SYSTEMD" -eq 1 ]; then
@@ -288,15 +300,35 @@ install_service_unit() {
     fi
 }
 
+# install_manager installs the management command under every name it answers to.
+# When any directory was overridden the defaults are baked out of the copy, so the
+# installed script keeps pointing at the right places instead of falling back to
+# /usr/local/lib/xrayr.
+install_manager() { # install_manager <script>
+    local src="$1" name
+    mkdir -p "$INSTALL_DIR"
+    for name in $MANAGER_NAMES; do
+        if [ "$INSTALL_DIR" = "/usr/local/bin" ] && [ "$LIB_DIR" = "/usr/local/lib/xrayr" ] && [ "$CONFIG_DIR" = "/etc/XrayR" ]; then
+            install -m 0755 "$src" "${INSTALL_DIR}/${name}"
+        else
+            sed -e "s#^LIB_DIR=\"/usr/local/lib/xrayr\"#LIB_DIR=\"${LIB_DIR}\"#" \
+                -e "s#^INSTALL_DIR=\"/usr/local/bin\"#INSTALL_DIR=\"${INSTALL_DIR}\"#" \
+                -e "s#^CONFIG_DIR=\"/etc/XrayR\"#CONFIG_DIR=\"${CONFIG_DIR}\"#" \
+                -e "s#^SELF_PATH=\"/usr/local/bin/xrayr\"#SELF_PATH=\"${INSTALL_DIR}/xrayr\"#" \
+                "$src" >"${INSTALL_DIR}/${name}"
+            chmod 0755 "${INSTALL_DIR}/${name}"
+        fi
+    done
+    ok "已安装管理命令 ${MANAGER_NAMES}（之后可直接运行 xrayr menu，大小写均可）"
+}
+
 install_self() {
     local src="${BASH_SOURCE[0]}"
     if [ -f "$src" ] && [ "$(cd -- "$(dirname -- "$src")" && pwd)/$(basename -- "$src")" != "$SELF_PATH" ]; then
-        install -m 0755 "$src" "$SELF_PATH"
-        ok "已安装管理命令 ${SELF_PATH}（之后可直接运行 xrayr menu）"
+        install_manager "$src"
     elif [ ! -f "$SELF_PATH" ]; then
         if fetch_repo_file "release/install.sh" "${WORKDIR}/self.sh" 2>/dev/null; then
-            install -m 0755 "${WORKDIR}/self.sh" "$SELF_PATH"
-            ok "已安装管理命令 ${SELF_PATH}"
+            install_manager "${WORKDIR}/self.sh"
         fi
     fi
 }
@@ -332,16 +364,17 @@ do_install() { # do_install [binary|docker]
 
 ${C_BOLD}安装完成，服务尚未启动${C_RESET}
 
-  二进制   ${INSTALL_DIR}/XrayR
-  配置     ${CONFIG_FILE}
-  规则     ${CONFIG_DIR}/geoip.dat, ${CONFIG_DIR}/geosite.dat
-  单元     ${SERVICE_PATH}
+  服务二进制  ${SERVICE_BIN}
+  管理命令    ${INSTALL_DIR}/xrayr, ${INSTALL_DIR}/XrayR
+  配置        ${CONFIG_FILE}
+  规则        ${CONFIG_DIR}/geoip.dat, ${CONFIG_DIR}/geosite.dat
+  单元        ${SERVICE_PATH}
 
 下一步：
   xrayr edit     修改配置里的 ApiHost / ApiKey / NodeID / NodeType
   xrayr check    校验配置
   xrayr start    启动
-  xrayr menu     打开管理菜单
+  xrayr menu     打开管理菜单（XrayR 大小写均可）
 EOF
 }
 
@@ -464,8 +497,8 @@ do_status() {
     printf '发行版   : %s\n' "${DISTRO:-未知}"
     printf '架构     : %s\n' "${ASSET:-未知}"
     if [ "$mode" = "binary" ]; then
-        if [ -x "${INSTALL_DIR}/XrayR" ]; then
-            printf '二进制   : %s\n' "$("${INSTALL_DIR}/XrayR" version)"
+        if [ -x "$SERVICE_BIN" ]; then
+            printf '二进制   : %s\n' "$("$SERVICE_BIN" version)"
         else
             printf '二进制   : 未安装\n'
         fi
@@ -514,8 +547,8 @@ do_check() {
         docker run --rm -v "${CONFIG_FILE}:/etc/XrayR/config.yml:ro" --entrypoint XrayR \
             "$DOCKER_IMAGE" config check -c /etc/XrayR/config.yml
     else
-        [ -x "${INSTALL_DIR}/XrayR" ] || die "没有找到 ${INSTALL_DIR}/XrayR"
-        "${INSTALL_DIR}/XrayR" config check -c "$CONFIG_FILE"
+        [ -x "$SERVICE_BIN" ] || die "没有找到 ${SERVICE_BIN}"
+        "$SERVICE_BIN" config check -c "$CONFIG_FILE"
     fi
     if config_is_placeholder; then
         printf '\n'
@@ -553,7 +586,7 @@ do_update() {
         return
     fi
 
-    log "更新 ${INSTALL_DIR}/XrayR"
+    log "更新 ${SERVICE_BIN}"
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
         was_active=1
         do_stop
@@ -581,49 +614,123 @@ do_uninstall() {
     fi
     rm -f "$SERVICE_PATH"
     [ "$HAS_SYSTEMD" -eq 1 ] && systemctl daemon-reload
-    rm -f "${INSTALL_DIR}/XrayR"
-    ok "已删除二进制与 systemd 单元"
+    rm -f "$SERVICE_BIN"
+    rm -rf "$LIB_DIR"
+    ok "已删除服务二进制与 systemd 单元"
     if [ "$PURGE" -eq 1 ]; then
         rm -rf "$CONFIG_DIR"
         ok "已删除 ${CONFIG_DIR}"
     else
         printf '  %s\n' "配置保留在 ${CONFIG_DIR}（加 --purge 可一并删除）"
     fi
-    if [ -f "$SELF_PATH" ]; then
-        rm -f "$SELF_PATH"
-        printf '  %s\n' "已删除管理命令 ${SELF_PATH}"
+    local name removed=0
+    for name in $MANAGER_NAMES; do
+        if [ -f "${INSTALL_DIR}/${name}" ]; then
+            rm -f "${INSTALL_DIR}/${name}"
+            removed=1
+        fi
+    done
+    if [ "$removed" -eq 1 ]; then
+        printf '  %s\n' "已删除管理命令 ${MANAGER_NAMES}"
     fi
 }
 
 # -------------------------------------------------------------------------- menu
 
-print_menu() {
-    local mode status
-    mode="$(manage_mode)"
-    case "$mode" in
-        binary) status="$(service_state)"; [ -n "$status" ] || status="unknown" ;;
-        docker) status="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo unknown)" ;;
-        *) status="未安装" ;;
-    esac
+# ------------------------------------------------------------ status helpers
 
-    printf '\n%s%sXrayR 管理菜单%s\n' "$C_BOLD" "$C_BLUE" "$C_RESET"
-    printf '  安装方式: %s | 运行状态: %s\n' "${mode:-未安装}" "$status"
-    printf '  配置文件: %s\n' "$CONFIG_FILE"
-    printf '%s\n' "----------------------------------------------------------------"
-    printf '  1) 安装 / 重装（二进制 + systemd）\n'
-    printf '  2) 安装 / 重装（Docker）\n'
-    printf '  3) 启动\n'
-    printf '  4) 停止\n'
-    printf '  5) 重启\n'
-    printf '  6) 查看状态\n'
-    printf '  7) 查看日志\n'
-    printf '  8) 编辑配置\n'
-    printf '  9) 校验配置\n'
-    printf ' 10) 更新到最新版本\n'
-    printf ' 11) 开机自启 开 / 关\n'
-    printf ' 12) 卸载\n'
-    printf '  0) 退出\n'
-    printf '%s\n' "----------------------------------------------------------------"
+# service_badge prints a coloured dot plus the state in words, so the menu reads
+# the same whether or not the terminal supports colour.
+service_badge() {
+    local state
+    if [ "$(manage_mode)" = "docker" ]; then
+        state="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+        case "$state" in
+            running)   printf '%s●%s 运行中' "$C_GREEN" "$C_RESET" ;;
+            "")        printf '%s●%s 未安装' "$C_DIM" "$C_RESET" ;;
+            exited|created|paused) printf '%s●%s 已停止' "$C_YELLOW" "$C_RESET" ;;
+            *)         printf '%s●%s %s' "$C_YELLOW" "$C_RESET" "$state" ;;
+        esac
+        return 0
+    fi
+    state="$(service_state)"
+    case "$state" in
+        active)    printf '%s●%s 运行中' "$C_GREEN" "$C_RESET" ;;
+        failed)    printf '%s●%s 启动失败' "$C_RED" "$C_RESET" ;;
+        inactive)  printf '%s●%s 已停止' "$C_YELLOW" "$C_RESET" ;;
+        activating|deactivating|reloading)
+                   printf '%s●%s %s' "$C_YELLOW" "$C_RESET" "$state" ;;
+        "")        printf '%s●%s 未安装' "$C_DIM" "$C_RESET" ;;
+        *)         printf '%s●%s %s' "$C_YELLOW" "$C_RESET" "$state" ;;
+    esac
+}
+
+mode_label() {
+    case "$(manage_mode)" in
+        docker) printf 'Docker' ;;
+        *) if [ -x "$SERVICE_BIN" ]; then printf 'systemd'; else printf '未安装'; fi ;;
+    esac
+}
+
+installed_version() {
+    if [ "$(manage_mode)" = "docker" ]; then
+        docker inspect -f '{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null | sed 's#.*:##' || true
+    elif [ -x "$SERVICE_BIN" ]; then
+        "$SERVICE_BIN" version 2>/dev/null | awk '{print $2}'
+    fi
+}
+
+autostart_label() {
+    local state
+    if [ "$(manage_mode)" = "docker" ]; then
+        state="$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+    else
+        state="$(service_enabled)"
+    fi
+    case "$state" in
+        enabled|always|unless-stopped) printf '已开启' ;;
+        "") printf '未安装' ;;
+        *) printf '已关闭' ;;
+    esac
+}
+
+hr() { printf '%s────────────────────────────────────────────────────────────%s\n' "$C_DIM" "$C_RESET"; }
+
+print_menu() {
+    local version
+    version="$(installed_version)"
+
+    printf '\n  %s%sXrayR 管理面板%s   %s·%s %s\n' \
+        "$C_BOLD" "$C_BLUE" "$C_RESET" "$C_DIM" "$C_RESET" "$(mode_label)"
+    hr
+    printf '   %s状态%s     %s\n' "$C_DIM" "$C_RESET" "$(service_badge)"
+    printf '   %s版本%s     %s\n' "$C_DIM" "$C_RESET" "${version:-未知}"
+    printf '   %s开机自启%s %s\n' "$C_DIM" "$C_RESET" "$(autostart_label)"
+    printf '   %s配置%s     %s\n' "$C_DIM" "$C_RESET" "$CONFIG_FILE"
+    hr
+
+    printf '\n   %s安装%s\n' "$C_BOLD" "$C_RESET"
+    printf '     %s1%s  安装 / 重装（二进制 + systemd）\n' "$C_CYAN" "$C_RESET"
+    printf '     %s2%s  安装 / 重装（Docker）\n' "$C_CYAN" "$C_RESET"
+
+    printf '\n   %s服务%s\n' "$C_BOLD" "$C_RESET"
+    printf '     %s3%s  启动            %s4%s  停止            %s5%s  重启\n' \
+        "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '     %s6%s  查看状态        %s7%s  查看日志\n' \
+        "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+
+    printf '\n   %s配置与升级%s\n' "$C_BOLD" "$C_RESET"
+    printf '     %s8%s  编辑配置        %s9%s  校验配置\n' \
+        "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+    printf '    %s10%s  更新到最新版本  %s11%s  开机自启 开 / 关\n' \
+        "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
+
+    printf '\n   %s其他%s\n' "$C_BOLD" "$C_RESET"
+    printf '    %s12%s  卸载\n' "$C_CYAN" "$C_RESET"
+
+    printf '\n'
+    hr
+    printf '     %s0%s  退出\n\n' "$C_CYAN" "$C_RESET"
 }
 
 menu_pause() { printf '\n按回车继续...'; read -r _ || true; }
@@ -683,6 +790,7 @@ parse_flags() {
             --ref)          REF="${2:?--ref 需要值}"; shift ;;
             --go-version)   GO_VERSION="${2:?--go-version 需要值}"; shift ;;
             --install-dir)  INSTALL_DIR="${2:?--install-dir 需要路径}"; shift ;;
+            --lib-dir)      LIB_DIR="${2:?--lib-dir 需要路径}"; shift ;;
             --config-dir)   CONFIG_DIR="${2:?--config-dir 需要路径}"; shift ;;
             --skip-rules)   SKIP_RULES=1 ;;
             --skip-service) SKIP_SERVICE=1 ;;
@@ -695,6 +803,7 @@ parse_flags() {
         shift
     done
     CONFIG_FILE="${CONFIG_DIR}/config.yml"
+    SERVICE_BIN="${LIB_DIR}/XrayR"
 }
 
 main() {
@@ -723,6 +832,17 @@ main() {
         disable)   shift; parse_flags "$@"; do_disable; return 0 ;;
         uninstall) shift; parse_flags "$@"; do_uninstall; return 0 ;;
         help|-h|--help) usage; return 0 ;;
+        "") ;;  # 没有参数：交给下面的默认分支
+        -*) ;;  # 只有标志：交给下面的默认分支（安装）
+        *)
+            # 不是管理子命令就转发给服务二进制，这样 `xrayr config check`、
+            # `xrayr doctor`、`xrayr version`、`xrayr -c FILE` 都能用，
+            # 而且 xrayr / XrayR 两个名字的行为完全一致。
+            if [ -x "$SERVICE_BIN" ]; then
+                exec "$SERVICE_BIN" "$@"
+            fi
+            die "未知子命令 '$1'，且没找到服务二进制 ${SERVICE_BIN}；用 ${0##*/} help 查看用法"
+            ;;
     esac
 
     local argc=$#

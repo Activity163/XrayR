@@ -5,8 +5,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Running the binary without `-c` now finds `/etc/XrayR/config.yml` before falling
+  back to `./config.yml`. On an installed node `XrayR` used to fail with
+  `open config config.yml: no such file or directory` because the working directory
+  is not the configuration directory.
+- The service binary moved to `/usr/local/lib/xrayr/XrayR`, and `/usr/local/bin`
+  now holds the management command under **both** `xrayr` and `XrayR`. On a
+  case-sensitive filesystem those were two different things — one opened the menu
+  and the other started the service — so the name is now case-insensitive as users
+  expect. Anything that is not a management subcommand (`xrayr config check`,
+  `xrayr doctor`, `xrayr version`, `xrayr -c FILE`) is forwarded to the binary, and
+  the installed copy has custom `--install-dir` / `--lib-dir` / `--config-dir`
+  values baked in. `--lib-dir` is new; `--install-dir` now means the directory for
+  the management command.
+- Release builds target Linux only (amd64, 386, arm64, arm/v5-v7, riscv64, s390x,
+  ppc64le) instead of twenty-three assets across six operating systems. That is
+  exactly the set `release/install.sh` can fetch, and the Windows, macOS, BSD, Android
+  and MIPS archives nobody could install are gone.
+
 ### Fixed
 
+- The missing-configuration error read `open config config.yml: open config
+  config.yml: no such file or directory`, repeating the path. It now says the file is
+  missing and how to point at a different one.
 - A Shadowsocks node using `2022-blake3-chacha20-poly1305` died at startup with
   `failed to build inbound handler for protocol shadowsocks > infra/conf:
   shadowsocks 2022 (multi-user): only blake3-aes-*-gcm methods are supported`,

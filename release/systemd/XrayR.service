@@ -10,8 +10,10 @@ User=root
 WorkingDirectory=/etc/XrayR
 # Validate the configuration before every start and restart so a broken file
 # never leaves a half-running node behind.
-ExecStartPre=/usr/local/bin/XrayR config check -c /etc/XrayR/config.yml
-ExecStart=/usr/local/bin/XrayR -c /etc/XrayR/config.yml
+# The service binary lives outside PATH because both `xrayr` and `XrayR` in
+# /usr/local/bin are the management command.
+ExecStartPre=/usr/local/lib/xrayr/XrayR config check -c /etc/XrayR/config.yml
+ExecStart=/usr/local/lib/xrayr/XrayR -c /etc/XrayR/config.yml
 Restart=always
 RestartSec=5
 LimitNOFILE=1048576

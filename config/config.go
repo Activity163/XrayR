@@ -61,7 +61,12 @@ func (r Result) Error() error {
 func Load(path string) (Result, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return Result{}, fmt.Errorf("open config %s: %w", path, err)
+		// os.Open already reports the path and the reason; adding "open config %s"
+		// on top produced "open config config.yml: open config.yml: no such file".
+		if os.IsNotExist(err) {
+			return Result{}, fmt.Errorf("configuration file %s does not exist; pass -c to point at it, or run the installer to create it", path)
+		}
+		return Result{}, fmt.Errorf("configuration file %s is not readable: %w", path, err)
 	}
 	// The file is only read, so a close failure carries no information.
 	defer func() { _ = file.Close() }()

@@ -37,16 +37,34 @@ xrayr status    # 查看状态
 
 安装时生成的 `/etc/XrayR/config.yml` 是一份**带完整注释的模板**：只有 4 个字段必填，其余全部注释掉，不用来回查文档。
 
-## 两个命令的区别
+## 命令
 
-装完会有两个命令，职责不同，别混：
+`/usr/local/bin` 下会装两个名字：**`xrayr` 和 `XrayR`，它们是同一个管理脚本，大小写不敏感**。
 
-| 命令      | 是什么                           | 常用子命令                                                                                                                     |
-| ------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `XrayR` | 服务本体（二进制）                     | 不带子命令即启动服务；`config check` / `config show` / `config migrate` / `config init` / `doctor` / `version` / `x25519`            |
-| `xrayr` | 安装与管理脚本（包装 `XrayR` + systemd） | `menu` `install` `docker` `start` `stop` `restart` `status` `logs` `edit` `check` `update` `enable` `disable` `uninstall` |
+```bash
+xrayr menu        # 打开管理面板，XrayR menu 效果一样
+```
 
-日常运维用 `xrayr`；写 systemd 单元或自己的脚本时用 `XrayR`。
+管理子命令：`menu` `install` `docker` `start` `stop` `restart` `status` `logs` `edit` `check` `update` `enable` `disable` `uninstall`。
+
+**不是管理子命令的参数会原样转交给服务二进制**，所以这些也能直接用：
+
+```bash
+xrayr config check -c /etc/XrayR/config.yml
+xrayr config show
+xrayr doctor
+xrayr version
+```
+
+服务二进制本体放在 `/usr/local/lib/xrayr/XrayR`（**不在 PATH 上**，否则会和上面两个名字冲突），systemd 就是直接调它：
+
+```
+ExecStart=/usr/local/lib/xrayr/XrayR -c /etc/XrayR/config.yml
+```
+
+它的子命令：不带子命令即启动服务；`config check` / `config show` / `config migrate` / `config init` / `doctor` / `version` / `x25519`。
+
+> 不带 `-c` 运行时，会先找 `/etc/XrayR/config.yml`，找不到才退回当前目录的 `config.yml`。
 
 ## 系统要求
 

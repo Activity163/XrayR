@@ -123,11 +123,33 @@ func newConfigMigrateCommand() *cobra.Command {
 	return command
 }
 
+// installedConfigPath is where the installer puts the configuration and localConfigPath
+// is the working-directory fallback used when running from a checkout.
+const (
+	installedConfigPath = "/etc/XrayR/config.yml"
+	localConfigPath     = "config.yml"
+)
+
+// resolveConfigPath picks the configuration file to read. An explicit -c always wins;
+// otherwise the installed location is preferred over the working directory, so running
+// the binary bare on an installed node finds the config the service uses instead of
+// failing with "open config.yml: no such file or directory".
 func resolveConfigPath() string {
 	if cfgFile != "" {
 		return cfgFile
 	}
-	return "config.yml"
+	return firstExisting(installedConfigPath, localConfigPath)
+}
+
+// firstExisting returns the first candidate that exists. When none do it returns the
+// last one, so the resulting error names the location an installed node would use.
+func firstExisting(candidates ...string) string {
+	for _, candidate := range candidates[:len(candidates)-1] {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[len(candidates)-1]
 }
 
 func printIssues(writer io.Writer, format string, result xconfig.Result) error {
