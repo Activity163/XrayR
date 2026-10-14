@@ -73,7 +73,7 @@ func TestConfigMasksEverySecret(t *testing.T) {
 func TestConfigHandlesNilAndEmptyValues(t *testing.T) {
 	assert.Nil(t, Config(nil))
 
-	view := Config(&panel.Config{NodesConfig: []*panel.NodesConfig{nil, {PanelType: "SSpanel"}}})
+	view := Config(&panel.Config{NodesConfig: []*panel.NodesConfig{nil, {PanelType: "Xboard"}}})
 	require.Len(t, view.NodesConfig, 2)
 	assert.Nil(t, view.NodesConfig[0])
 	assert.Nil(t, view.NodesConfig[1].ApiConfig)

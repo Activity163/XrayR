@@ -23,12 +23,8 @@ import (
 func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.InboundHandlerConfig, error) {
 	inboundDetourConfig := &conf.InboundDetourConfig{}
 	// Build Listen IP address
-	if nodeInfo.NodeType == "Shadowsocks-Plugin" {
-		// Shdowsocks listen in 127.0.0.1 for safety
-		inboundDetourConfig.ListenOn = &conf.Address{Address: net.ParseAddress("127.0.0.1")}
-	} else if config.ListenIP != "" {
-		ipAddress := net.ParseAddress(config.ListenIP)
-		inboundDetourConfig.ListenOn = &conf.Address{Address: ipAddress}
+	if config.ListenIP != "" {
+		inboundDetourConfig.ListenOn = &conf.Address{Address: net.ParseAddress(config.ListenIP)}
 	}
 
 	// Build Port
@@ -95,7 +91,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		} else {
 			proxySetting = &conf.TrojanServerConfig{}
 		}
-	case "Shadowsocks", "Shadowsocks-Plugin":
+	case "Shadowsocks":
 		protocol = "shadowsocks"
 		cipher := strings.ToLower(nodeInfo.CypherMethod)
 
@@ -124,17 +120,8 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 			proxySetting.IVCheck = false
 		}
 
-	case "dokodemo-door":
-		protocol = "dokodemo-door"
-		proxySetting = struct {
-			Host        string   `json:"address"`
-			NetworkList []string `json:"network"`
-		}{
-			Host:        "v1.mux.cool",
-			NetworkList: []string{"tcp", "udp"},
-		}
 	default:
-		return nil, fmt.Errorf("unsupported node type: %s, Only support: V2ray, Trojan, Shadowsocks, and Shadowsocks-Plugin", nodeInfo.NodeType)
+		return nil, fmt.Errorf("unsupported node type: %s; supported: V2ray, Vmess, Vless, Trojan, Shadowsocks", nodeInfo.NodeType)
 	}
 
 	setting, err := json.Marshal(proxySetting)

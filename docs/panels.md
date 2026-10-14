@@ -1,28 +1,35 @@
-# Other panel integrations
+# Supported panel
 
-XrayR also supports the following panel adapters through the same `Nodes` configuration structure:
+XrayR talks to exactly one panel backend: **Xboard**.
 
-| `PanelType` | Adapter | Typical protocols |
+| `PanelType` | Adapter | Accepted node types |
 |---|---|---|
-| `SSpanel` | SSPanel UIM API | Vmess, Vless, Trojan, Shadowsocks, Shadowsocks-Plugin |
-| `PMpanel` | PMPanel API | Vmess, Trojan, Shadowsocks |
-| `Proxypanel` | ProxyPanel API | Vmess, Vless, Trojan, Shadowsocks |
-| `V2RaySocks` | V2RaySocks API | Vmess, Vless, Trojan, Shadowsocks |
-| `GoV2Panel` | GoV2Panel API | Vmess, Vless, Trojan, Shadowsocks |
-| `BunPanel` | BunPanel API | Vmess, Vless, Trojan, Shadowsocks |
+| `Xboard` | `NewV2board` | `V2ray`, `Vmess`, `Vless`, `Trojan`, `Shadowsocks` |
 
-Use `XrayR config check` to verify the exact protocol accepted by the selected adapter. Unsupported capabilities—such as online-user or node-status reporting—are skipped according to the registry capability matrix rather than treated as successful no-op requests.
+`NewV2board` and `V2board` are accepted as historical aliases of `Xboard`, so
+existing configurations keep working. Write `Xboard` in new configurations.
 
 A minimal node block is:
 
 ```yaml
 Nodes:
-  - PanelType: SSpanel
+  - PanelType: Xboard
     ApiConfig:
       ApiHost: https://panel.example.com
       ApiKey: CHANGE_ME
       NodeID: 1
       NodeType: Vless
+      Timeout: 30
 ```
 
-For panel-specific fields, follow the panel project's node API documentation and run `XrayR doctor` before starting the service.
+Anything else in `PanelType` is rejected at startup with a message naming the
+closest supported value:
+
+```
+unsupported panel type "Xbord"; did you mean "Xboard"? supported panels: Xboard
+```
+
+Run `XrayR config check` to validate the panel type and node type before
+starting the service, and `XrayR doctor` for a full preflight report.
+
+See [Xboard](dui-jie-xboard/xboard.md) for the panel-specific setup steps.

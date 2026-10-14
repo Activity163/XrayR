@@ -91,17 +91,21 @@ func (s *Store) Save(node *api.NodeInfo, users *[]api.UserInfo, rules *[]api.Det
 		return err
 	}
 	temp := file.Name()
-	defer os.Remove(temp)
+	// The temp file is discarded on every path, including success, where it has
+	// already been renamed into place.
+	defer func() { _ = os.Remove(temp) }()
+	// Every early return below abandons the temp file, so a close failure adds
+	// nothing to the error that is already being reported.
 	if err := file.Chmod(0o600); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if _, err := file.Write(data); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err := file.Close(); err != nil {

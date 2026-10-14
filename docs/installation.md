@@ -107,7 +107,7 @@ docker build -t ghcr.io/activity163/xrayr:latest .
 
 ## 规则数据（geoip.dat / geosite.dat）
 
-`geoip:` / `geosite:` 路由规则依赖这两个文件。它们**不在仓库里**（合计约 14 MB 且持续更新），
+`geoip:` / `geosite:` 路由规则依赖这两个文件。它们**不在仓库里**（合计约 26 MB 且持续增长），
 安装时会从
 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)
 的最新 release 下载并校验 sha256：

@@ -60,6 +60,7 @@ Nodes:
 #      DisableGetRule: false          # 不同步面板的审计规则
 #      DisableUploadTraffic: false    # 不上报流量
 #      DisableSniffing: false         # 关闭流量嗅探
+#      DisableCoreHeartbeat: false    # 关闭内核心跳探测（探测连续失败 3 次会重启进程自愈）
 #
 #      AutoSpeedLimitConfig:          # 超速自动限速
 #        Limit: 0                     # 触发阈值（Mbps），0 为关闭
@@ -135,14 +136,8 @@ Nodes:
 #  面板类型 PanelType 可选值
 # ============================================================================
 #   Xboard / NewV2board / V2board   （三者等价，推荐写 Xboard）
-#   SSpanel
-#   PMpanel
-#   Proxypanel
-#   V2RaySocks
-#   GoV2Panel
-#   BunPanel
 #
-#  写错不会静默失败：启动时会提示最接近的候选名称。
+#  本版本只支持 Xboard。写错不会静默失败：启动时会提示最接近的候选名称。
 #
 # ============================================================================
 #  协议 NodeType 可选值
@@ -151,7 +146,6 @@ Nodes:
 #   Vmess / Vless         显式指定
 #   Trojan
 #   Shadowsocks
-#   Shadowsocks-Plugin    仅 SSpanel
 #
 #  注意：不是每个面板都支持全部协议，写错了启动时会明确报错。
 #

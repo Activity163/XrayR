@@ -63,7 +63,8 @@ func Load(path string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("open config %s: %w", path, err)
 	}
-	defer file.Close()
+	// The file is only read, so a close failure carries no information.
+	defer func() { _ = file.Close() }()
 
 	result, err := Decode(file)
 	if err != nil {

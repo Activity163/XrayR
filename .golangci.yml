@@ -2,20 +2,17 @@
 #
 # Run with: golangci-lint run
 #
-# The enabled set is intentionally conservative: correctness linters the codebase
-# currently passes, so a new finding means new dead code, a new unreachable branch,
-# or a new ineffective assignment. Style linters are deliberately not enabled.
+# The enabled set is the `standard` group (errcheck, govet, ineffassign,
+# staticcheck, unused). Style linters are deliberately not enabled, so a finding
+# means a real defect: an unchecked error, dead code, an unreachable branch, or
+# an ineffective assignment.
 #
-# errcheck is disabled on purpose. The codebase has ~30 unchecked calls that are all
-# benign by design (`defer os.Remove(temp)`, `os.Setenv`, `defer conn.Close()`), and
-# annotating each one would add more noise than it removes. Enabling errcheck is a
-# worthwhile follow-up, but it is a separate change from keeping the tree lint-clean.
+# errcheck is on. Every error is either handled or discarded explicitly with
+# `_ =`, so a new finding is a new unhandled error rather than noise.
 version: "2"
 
 linters:
   default: standard
-  disable:
-    - errcheck
   exclusions:
     generated: lax
 

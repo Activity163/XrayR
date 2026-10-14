@@ -72,10 +72,6 @@ func nodeGroups(node *NodeState) []*huh.Group {
 			huh.NewInput().Title("Local rule list path").Value(&node.RuleListPath),
 		),
 		huh.NewGroup(
-			huh.NewNote().Title("Panel behavior"),
-			huh.NewConfirm().Title("Disable panel custom configuration?").Description("When enabled the panel custom config will be ignored.").Value(&node.DisableCustomConfig),
-		),
-		huh.NewGroup(
 			huh.NewNote().Title("Controller").Description("Network binding, synchronization, DNS and reporting behavior."),
 			huh.NewInput().Title("Listen IP").Value(&node.ListenIP).Validate(validateRequired),
 			huh.NewInput().Title("Outbound send IP").Value(&node.SendIP).Validate(validateRequired),

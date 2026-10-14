@@ -20,13 +20,6 @@ import (
 	"github.com/XrayR-project/XrayR/api"
 )
 
-var AEADMethod = map[shadowsocks.CipherType]uint8{
-	shadowsocks.CipherType_AES_128_GCM:        0,
-	shadowsocks.CipherType_AES_256_GCM:        0,
-	shadowsocks.CipherType_CHACHA20_POLY1305:  0,
-	shadowsocks.CipherType_XCHACHA20_POLY1305: 0,
-}
-
 func (c *Controller) buildVmessUser(userInfo *[]api.UserInfo, tag string) (users []*protocol.User) {
 	users = make([]*protocol.User, len(*userInfo))
 	for i, user := range *userInfo {
@@ -107,43 +100,6 @@ func (c *Controller) buildSSUser(userInfo *[]api.UserInfo, method string, tag st
 	return users
 }
 
-func (c *Controller) buildSSPluginUser(userInfo *[]api.UserInfo, tag string) (users []*protocol.User) {
-	users = make([]*protocol.User, len(*userInfo))
-
-	for i, user := range *userInfo {
-		// shadowsocks2022 Key = openssl rand -base64 32 and multi users needn't cipher method
-		if C.Contains(shadowaead_2022.List, strings.ToLower(user.Method)) {
-			e := buildUserTag(tag, &user)
-			userKey, err := c.checkShadowsocksPassword(user.Passwd, user.Method)
-			if err != nil {
-				errors.LogError(context.Background(), "[UID: %d] %s", user.UID, err)
-				continue
-			}
-			users[i] = &protocol.User{
-				Level: 0,
-				Email: e,
-				Account: serial.ToTypedMessage(&shadowsocks_2022.Account{
-					Key: userKey,
-				}),
-			}
-		} else {
-			// Check if the cypher method is AEAD
-			cypherMethod := cipherFromString(user.Method)
-			if _, ok := AEADMethod[cypherMethod]; ok {
-				users[i] = &protocol.User{
-					Level: 0,
-					Email: buildUserTag(tag, &user),
-					Account: serial.ToTypedMessage(&shadowsocks.Account{
-						Password:   user.Passwd,
-						CipherType: cypherMethod,
-					}),
-				}
-			}
-		}
-	}
-	return users
-}
-
 func cipherFromString(c string) shadowsocks.CipherType {
 	switch strings.ToLower(c) {
 	case "aes-128-gcm", "aead_aes_128_gcm":
@@ -152,6 +108,8 @@ func cipherFromString(c string) shadowsocks.CipherType {
 		return shadowsocks.CipherType_AES_256_GCM
 	case "chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305":
 		return shadowsocks.CipherType_CHACHA20_POLY1305
+	case "xchacha20-poly1305", "aead_xchacha20_poly1305":
+		return shadowsocks.CipherType_XCHACHA20_POLY1305
 	case "none", "plain":
 		return shadowsocks.CipherType_NONE
 	default:

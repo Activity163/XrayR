@@ -3,6 +3,62 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Core liveness heartbeat.** xray-core exposes no liveness flag, so a wedged
+  core keeps the process alive while serving nothing — invisible to both the
+  node and the user monitor. A new `core heartbeat` periodic task dials the
+  inbound listener every `UpdatePeriodic`; after three consecutive failures the
+  process exits so the service manager restarts the node. A port move or a slow
+  listener restart cannot trigger it. New metrics
+  `xrayr_core_healthy` and `xrayr_core_probe_failures_total`, new option
+  `DisableCoreHeartbeat`.
+
+### Changed
+
+- **`xrayr_panel_requests_total` is now populated.** Adapters record each API
+  call exactly once through `api.ObservePanelRequest` / `api.ObservePanelError`,
+  after the response has been fully handled, so the counter reports logical
+  outcomes: a 200 whose body fails to parse is labelled `invalid_payload`, not
+  `success`.
+- **`xrayr_certificate_days_remaining` is now populated.** `certMonitor` reads
+  the leaf certificate it is already renewing and publishes the remaining
+  validity. `CertMode: file` nodes are covered too, which previously had no
+  expiry visibility at all.
+- **`errcheck` is enabled.** All 51 unchecked error returns are now either
+  handled or explicitly discarded with `_ =`. Two were real defects: the
+  unchecked `json.Unmarshal` calls in the Xboard adapter could silently produce a
+  zero-valued node config or an empty user list, and `generatePrivateKey` could
+  report success after failing to flush a private key to disk.
+- `certMonitor` no longer dereferences a nil `LegoCMD` when `mylego.New` fails.
+- **Xboard is now the only supported panel.** The `SSpanel`, `PMpanel`,
+  `Proxypanel`, `V2RaySocks`, `GoV2Panel` and `BunPanel` adapters were removed
+  (`api/sspanel`, `api/pmpanel`, `api/proxypanel`, `api/v2raysocks`,
+  `api/gov2panel`, `api/bunpanel`). The names `Xboard`, `NewV2board` and
+  `V2board` remain equivalent aliases; any other `PanelType` is rejected by
+  both startup and `config check`, with the closest candidate suggested.
+- The `Shadowsocks-Plugin` and `dokodemo-door` node types were removed along
+  with SSpanel, the only adapter that could produce them. `dokodemo-door` is
+  no longer accepted by `InboundBuilder`.
+- The `DisableCustomConfig` API option was removed. Only SSpanel honoured it,
+  and Xboard always derives the node from the UniProxy response. Existing
+  configurations that still carry the key keep loading; the value is ignored.
+- `api.BaseClient` and `api.ApplyETag` now hold the adapter identity fields,
+  `Describe`, `Debug` and the ETag / 304 conditional-request flow that used to
+  be copy-pasted per adapter.
+
+### Fixed
+
+- A missing snapshot no longer crash-loops the node. When `Cache` is enabled
+  and the snapshot file does not exist, `snapshotStore.Load()` returned a raw
+  `ENOENT` that propagated up to `Panel.Start()` and terminated the process,
+  leaving systemd restarting forever. `os.IsNotExist` is now logged as a
+  warning and the normal panel fetch proceeds.
+- `cipherFromString` recognises `xchacha20-poly1305` instead of returning
+  `UNKNOWN`, so Shadowsocks nodes using that cipher can start.
+
 ## [0.9.7] - 2026-10-09
 
 ### Added

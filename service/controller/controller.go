@@ -3,8 +3,11 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"reflect"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,6 +69,9 @@ type Controller struct {
 	snapshotStore *snapshot.Store
 	lastSync      time.Time
 	lastError     string
+	// coreFailures counts consecutive failed liveness probes. Only the heartbeat
+	// task writes it, but it is atomic so a future reader cannot race.
+	coreFailures atomic.Int64
 }
 
 // runtimeSnapshot returns the current node, user list and tag. The returned
@@ -157,6 +163,9 @@ func (c *Controller) Start() error {
 		newNodeInfo, userInfo, rules, savedAt, nodeErr = c.snapshotStore.Load()
 		if nodeErr == nil {
 			c.logger.WithField("saved_at", savedAt).Warn("Panel is unavailable; using the last valid snapshot")
+		} else if os.IsNotExist(nodeErr) {
+			c.logger.Warn("Panel is unavailable and no snapshot exists; ignoring snapshot error")
+			nodeErr = nil
 		}
 	}
 	if nodeErr != nil {
@@ -199,6 +208,7 @@ func (c *Controller) Start() error {
 	c.tasks = append(c.tasks,
 		periodicTask{tag: "node monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("node monitor", c.nodeInfoMonitor)}},
 		periodicTask{tag: "user monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("user monitor", c.userInfoMonitor)}},
+		periodicTask{tag: "core heartbeat", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("core heartbeat", c.coreHeartbeatMonitor)}},
 	)
 	if newNodeInfo.EnableTLS && !c.config.EnableREALITY {
 		c.tasks = append(c.tasks, periodicTask{tag: "cert monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Minute, Execute: c.guardTask("cert monitor", c.certMonitor)}})
@@ -336,15 +346,13 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 				return nil
 			}
 			newTag := fmt.Sprintf("%s_%s_%d", newNodeInfo.NodeType, c.config.ListenIP, newNodeInfo.Port)
-			if newNodeInfo.NodeType != "Shadowsocks-Plugin" {
-				if _, err := InboundBuilder(c.config, newNodeInfo, newTag); err != nil {
-					c.recordSyncError(err)
-					return nil
-				}
-				if _, err := OutboundBuilder(c.config, newNodeInfo, newTag); err != nil {
-					c.recordSyncError(err)
-					return nil
-				}
+			if _, err := InboundBuilder(c.config, newNodeInfo, newTag); err != nil {
+				c.recordSyncError(err)
+				return nil
+			}
+			if _, err := OutboundBuilder(c.config, newNodeInfo, newTag); err != nil {
+				c.recordSyncError(err)
+				return nil
 			}
 
 			oldNode, oldUsers, oldTag := c.runtimeSnapshot()
@@ -481,83 +489,18 @@ func (c *Controller) removeOldTag(oldTag string) (err error) {
 }
 
 func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo, tag string) (err error) {
-	if newNodeInfo.NodeType != "Shadowsocks-Plugin" {
-		inboundConfig, err := InboundBuilder(c.config, newNodeInfo, tag)
-		if err != nil {
-			return err
-		}
-		err = c.addInbound(inboundConfig)
-		if err != nil {
-
-			return err
-		}
-		outBoundConfig, err := OutboundBuilder(c.config, newNodeInfo, tag)
-		if err != nil {
-
-			return err
-		}
-		err = c.addOutbound(outBoundConfig)
-		if err != nil {
-
-			return err
-		}
-
-	} else {
-		return c.addInboundForSSPlugin(*newNodeInfo, tag)
-	}
-	return nil
-}
-
-func (c *Controller) addInboundForSSPlugin(newNodeInfo api.NodeInfo, tag string) (err error) {
-	// Shadowsocks-Plugin require a separate inbound for other TransportProtocol likes: ws, grpc
-	fakeNodeInfo := newNodeInfo
-	fakeNodeInfo.TransportProtocol = "tcp"
-	fakeNodeInfo.EnableTLS = false
-	// Add a regular Shadowsocks inbound and outbound
-	inboundConfig, err := InboundBuilder(c.config, &fakeNodeInfo, tag)
+	inboundConfig, err := InboundBuilder(c.config, newNodeInfo, tag)
 	if err != nil {
 		return err
 	}
-	err = c.addInbound(inboundConfig)
-	if err != nil {
-
+	if err = c.addInbound(inboundConfig); err != nil {
 		return err
 	}
-	outBoundConfig, err := OutboundBuilder(c.config, &fakeNodeInfo, tag)
-	if err != nil {
-
-		return err
-	}
-	err = c.addOutbound(outBoundConfig)
-	if err != nil {
-
-		return err
-	}
-	// Add an inbound for upper streaming protocol
-	fakeNodeInfo = newNodeInfo
-	fakeNodeInfo.Port++
-	fakeNodeInfo.NodeType = "dokodemo-door"
-	dokodemoTag := fmt.Sprintf("dokodemo-door_%s+1", tag)
-	inboundConfig, err = InboundBuilder(c.config, &fakeNodeInfo, dokodemoTag)
+	outBoundConfig, err := OutboundBuilder(c.config, newNodeInfo, tag)
 	if err != nil {
 		return err
 	}
-	err = c.addInbound(inboundConfig)
-	if err != nil {
-
-		return err
-	}
-	outBoundConfig, err = OutboundBuilder(c.config, &fakeNodeInfo, dokodemoTag)
-	if err != nil {
-
-		return err
-	}
-	err = c.addOutbound(outBoundConfig)
-	if err != nil {
-
-		return err
-	}
-	return nil
+	return c.addOutbound(outBoundConfig)
 }
 
 func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo, tag string) (err error) {
@@ -573,8 +516,6 @@ func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo
 		users = c.buildTrojanUser(userInfo, tag)
 	case "Shadowsocks":
 		users = c.buildSSUser(userInfo, nodeInfo.CypherMethod, tag)
-	case "Shadowsocks-Plugin":
-		users = c.buildSSPluginUser(userInfo, tag)
 	default:
 		return fmt.Errorf("unsupported node type: %s", nodeInfo.NodeType)
 	}
@@ -779,22 +720,133 @@ func (c *Controller) buildNodeTag(node *api.NodeInfo) string {
 	return fmt.Sprintf("%s_%s_%d", node.NodeType, c.config.ListenIP, node.Port)
 }
 
-// Check Cert
+// certMonitor keeps the node certificate fresh and publishes its remaining
+// validity. It is registered only for TLS nodes that manage their own certs.
 func (c *Controller) certMonitor() error {
 	node := c.currentNode()
-	if node != nil && node.EnableTLS && !c.config.EnableREALITY && c.config.CertConfig != nil {
-		switch c.config.CertConfig.CertMode {
-		case "dns", "http", "tls":
-			lego, err := mylego.New(c.config.CertConfig)
-			if err != nil {
-				c.logger.Print(err)
-			}
-			// Xray-core supports the OcspStapling certification hot renew
-			_, _, _, err = lego.RenewCert()
-			if err != nil {
-				c.logger.Print(err)
-			}
-		}
+	if node == nil || !node.EnableTLS || c.config.EnableREALITY || c.config.CertConfig == nil {
+		return nil
+	}
+	if certFile := c.maintainCertificate(); certFile != "" {
+		c.recordCertificateExpiry(node, certFile)
 	}
 	return nil
+}
+
+// maintainCertificate renews the node certificate when ACME is in use and
+// returns the certificate file currently serving traffic. An empty return means
+// no certificate is available yet.
+func (c *Controller) maintainCertificate() string {
+	certConfig := c.config.CertConfig
+	switch certConfig.CertMode {
+	case "dns", "http", "tls":
+		lego, err := mylego.New(certConfig)
+		if err != nil {
+			c.logger.Print(err)
+			return ""
+		}
+		// Xray-core supports the OcspStapling certification hot renew.
+		certFile, _, _, err := lego.RenewCert()
+		if err != nil {
+			c.logger.Print(err)
+			return ""
+		}
+		return certFile
+	case "file":
+		return certConfig.CertFile
+	default:
+		return ""
+	}
+}
+
+// recordCertificateExpiry publishes how long the leaf certificate stays valid so
+// an approaching expiry is visible before it starts breaking TLS handshakes.
+func (c *Controller) recordCertificateExpiry(node *api.NodeInfo, certFile string) {
+	days, err := certificateDaysRemaining(certFile)
+	if err != nil {
+		c.logger.WithError(err).Debug("Failed to read certificate expiry")
+		return
+	}
+	observability.CertDaysRemaining.WithLabelValues(node.NodeType).Set(days)
+}
+
+const (
+	// coreProbeTimeout bounds a single liveness dial.
+	coreProbeTimeout = 3 * time.Second
+	// coreProbeFailuresBeforeExit is how many consecutive failed probes are
+	// needed before the node is judged dead. Three intervals is long enough that
+	// a port move or a slow listener restart cannot produce a false positive.
+	coreProbeFailuresBeforeExit = 3
+)
+
+// coreUnhealthy is invoked once the heartbeat has failed
+// coreProbeFailuresBeforeExit times in a row. The default exits the process so
+// the service manager restarts the node: xray-core offers no way to rebuild an
+// instance in place, and every feature handle a controller holds (inbound,
+// outbound, stats and policy managers) would be stale afterwards.
+//
+// It is a variable so tests can observe the decision without terminating.
+var coreUnhealthy = func(nodeType, reason string) {
+	log.WithFields(log.Fields{"node_type": nodeType, "reason": reason}).
+		Error("Core is unresponsive; exiting so the service manager can restart the node")
+	os.Exit(1)
+}
+
+// coreHeartbeatMonitor proves the core is still accepting connections.
+//
+// xray-core has no exported liveness flag, and a wedged core keeps the process
+// alive while serving nothing, which neither the node nor the user monitor can
+// see. Dialling the inbound listener is therefore the only end-to-end signal
+// that the node is still doing its job.
+func (c *Controller) coreHeartbeatMonitor() error {
+	if c.config.DisableCoreHeartbeat {
+		return nil
+	}
+	// Delay to start, so the first probe cannot race the initial listener setup.
+	if time.Since(c.startAt) < time.Duration(c.config.UpdatePeriodic)*time.Second {
+		return nil
+	}
+	node := c.currentNode()
+	if node == nil || node.Port == 0 {
+		return nil
+	}
+	if err := c.probeInbound(node); err != nil {
+		failures := c.coreFailures.Add(1)
+		observability.CoreHealthy.WithLabelValues(node.NodeType).Set(0)
+		observability.CoreProbeFailures.WithLabelValues(node.NodeType).Inc()
+		c.logger.WithError(err).WithField("consecutive_failures", failures).Error("Core liveness probe failed")
+		if failures >= coreProbeFailuresBeforeExit {
+			coreUnhealthy(node.NodeType, err.Error())
+		}
+		return nil
+	}
+	c.coreFailures.Store(0)
+	observability.CoreHealthy.WithLabelValues(node.NodeType).Set(1)
+	return nil
+}
+
+// probeInbound dials the node's inbound listener. A completed TCP handshake is
+// the signal; nothing is written, so the probe is never counted as user traffic.
+func (c *Controller) probeInbound(node *api.NodeInfo) error {
+	address := net.JoinHostPort(probeHost(c.config.ListenIP), strconv.Itoa(int(node.Port)))
+	connection, err := net.DialTimeout("tcp", address, coreProbeTimeout)
+	if err != nil {
+		return err
+	}
+	// The handshake already proved liveness; a close failure adds nothing.
+	_ = connection.Close()
+	return nil
+}
+
+// probeHost turns a configured listen address into something dialable from the
+// node itself.
+func probeHost(listenIP string) string {
+	switch listenIP {
+	case "", "0.0.0.0":
+		return "127.0.0.1"
+	case "::", "[::]":
+		return "::1"
+	default:
+		return listenIP
+	}
 }

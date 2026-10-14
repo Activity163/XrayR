@@ -1,6 +1,6 @@
 # XrayR Documentation
 
-XrayR is a multi-panel backend for Xray-core. This documentation focuses on safe configuration, validation, diagnosis, recovery, and operations.
+XrayR is an Xboard backend for Xray-core. This documentation focuses on safe configuration, validation, diagnosis, recovery, and operations.
 
 ## Recommended deployment flow
 

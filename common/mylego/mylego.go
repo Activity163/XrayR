@@ -34,8 +34,9 @@ func New(certConf *CertConfig) (*LegoCMD, error) {
 
 // DNSCert cert a domain using DNS API
 func (l *LegoCMD) DNSCert() (CertPath string, KeyPath string, err error) {
-	defer func() (string, string, error) {
-		// Handle any error
+	// The deferred closure assigns to the named error, so a panic raised inside
+	// lego is reported as a normal error instead of taking the node down.
+	defer func() {
 		if r := recover(); r != nil {
 			switch x := r.(type) {
 			case string:
@@ -45,14 +46,12 @@ func (l *LegoCMD) DNSCert() (CertPath string, KeyPath string, err error) {
 			default:
 				err = errors.New("unknown panic")
 			}
-			return "", "", err
 		}
-		return CertPath, KeyPath, nil
 	}()
 
 	// Set Env for DNS configuration
 	for key, value := range l.C.DNSEnv {
-		os.Setenv(strings.ToUpper(key), value)
+		_ = os.Setenv(strings.ToUpper(key), value)
 	}
 
 	// First check if the certificate exists
@@ -74,8 +73,9 @@ func (l *LegoCMD) DNSCert() (CertPath string, KeyPath string, err error) {
 
 // HTTPCert cert a domain using http methods
 func (l *LegoCMD) HTTPCert() (CertPath string, KeyPath string, err error) {
-	defer func() (string, string, error) {
-		// Handle any error
+	// The deferred closure assigns to the named error, so a panic raised inside
+	// lego is reported as a normal error instead of taking the node down.
+	defer func() {
 		if r := recover(); r != nil {
 			switch x := r.(type) {
 			case string:
@@ -85,9 +85,7 @@ func (l *LegoCMD) HTTPCert() (CertPath string, KeyPath string, err error) {
 			default:
 				err = errors.New("unknown panic")
 			}
-			return "", "", err
 		}
-		return CertPath, KeyPath, nil
 	}()
 
 	// First check if the certificate exists
@@ -111,8 +109,9 @@ func (l *LegoCMD) HTTPCert() (CertPath string, KeyPath string, err error) {
 
 // RenewCert renew a domain cert
 func (l *LegoCMD) RenewCert() (CertPath string, KeyPath string, ok bool, err error) {
-	defer func() (string, string, bool, error) {
-		// Handle any error
+	// The deferred closure assigns to the named error, so a panic raised inside
+	// lego is reported as a normal error instead of taking the node down.
+	defer func() {
 		if r := recover(); r != nil {
 			switch x := r.(type) {
 			case string:
@@ -122,9 +121,7 @@ func (l *LegoCMD) RenewCert() (CertPath string, KeyPath string, ok bool, err err
 			default:
 				err = errors.New("unknown panic")
 			}
-			return "", "", false, err
 		}
-		return CertPath, KeyPath, ok, nil
 	}()
 
 	ok, err = l.Renew()

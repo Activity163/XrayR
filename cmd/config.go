@@ -71,7 +71,7 @@ func newConfigShowCommand() *cobra.Command {
 				return encoder.Encode(view)
 			case "yaml", "yml":
 				encoder := yaml.NewEncoder(cmd.OutOrStdout())
-				defer encoder.Close()
+				defer func() { _ = encoder.Close() }()
 				return encoder.Encode(view)
 			default:
 				return fmt.Errorf("unsupported format %q; use yaml or json", format)
@@ -99,7 +99,7 @@ func newConfigMigrateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 			data, issues, err := xconfig.Migrate(file)
 			if err != nil {
 				return err
@@ -111,9 +111,9 @@ func newConfigMigrateCommand() *cobra.Command {
 				return err
 			}
 			for _, issue := range issues {
-				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s: %s\n", issue.Severity, issue.Path, issue.Message)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s: %s\n", issue.Severity, issue.Path, issue.Message)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Migrated configuration written to %s\n", output)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Migrated configuration written to %s\n", output)
 			return nil
 		},
 	}
@@ -144,17 +144,17 @@ func printIssues(writer io.Writer, format string, result xconfig.Result) error {
 		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 	if len(result.Issues) == 0 {
-		fmt.Fprintln(writer, "✓ Configuration is valid")
+		_, _ = fmt.Fprintln(writer, "✓ Configuration is valid")
 		return nil
 	}
 	for _, issue := range result.Issues {
-		fmt.Fprintf(writer, "%s: %s: %s\n", strings.ToUpper(string(issue.Severity)), issue.Path, issue.Message)
+		_, _ = fmt.Fprintf(writer, "%s: %s: %s\n", strings.ToUpper(string(issue.Severity)), issue.Path, issue.Message)
 		if issue.Suggestion != "" {
-			fmt.Fprintf(writer, "  Suggestion: %s\n", issue.Suggestion)
+			_, _ = fmt.Fprintf(writer, "  Suggestion: %s\n", issue.Suggestion)
 		}
 	}
 	if !result.HasErrors() {
-		fmt.Fprintln(writer, "✓ Configuration is valid with warnings")
+		_, _ = fmt.Fprintln(writer, "✓ Configuration is valid with warnings")
 	}
 	return nil
 }

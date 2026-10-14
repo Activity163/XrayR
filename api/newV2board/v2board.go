@@ -18,11 +18,7 @@ import (
 
 // APIClient create an api client to the panel.
 type APIClient struct {
-	client        *resty.Client
-	APIHost       string
-	NodeID        int
-	Key           string
-	NodeType      string
+	*api.BaseClient
 	EnableVless   bool
 	VlessFlow     string
 	SpeedLimit    float64
@@ -34,7 +30,7 @@ type APIClient struct {
 
 // New create an api instance
 func New(apiConfig *api.Config) *APIClient {
-	client := api.NewHTTPClient(apiConfig)
+	base := api.NewBaseClient(apiConfig)
 
 	var nodeType string
 
@@ -44,7 +40,7 @@ func New(apiConfig *api.Config) *APIClient {
 		nodeType = strings.ToLower(apiConfig.NodeType)
 	}
 	// Create Key for each requests
-	client.SetQueryParams(map[string]string{
+	base.Client.SetQueryParams(map[string]string{
 		"node_id":   strconv.Itoa(apiConfig.NodeID),
 		"node_type": nodeType,
 		"token":     apiConfig.Key,
@@ -52,11 +48,7 @@ func New(apiConfig *api.Config) *APIClient {
 	// Read local rule list
 	localRuleList := api.ReadLocalRuleList(apiConfig.RuleListPath)
 	apiClient := &APIClient{
-		client:        client,
-		NodeID:        apiConfig.NodeID,
-		Key:           apiConfig.Key,
-		APIHost:       apiConfig.APIHost,
-		NodeType:      apiConfig.NodeType,
+		BaseClient:    base,
 		EnableVless:   apiConfig.EnableVless,
 		VlessFlow:     apiConfig.VlessFlow,
 		SpeedLimit:    apiConfig.SpeedLimit,
@@ -67,26 +59,26 @@ func New(apiConfig *api.Config) *APIClient {
 	return apiClient
 }
 
-// Describe return a description of the client
-func (c *APIClient) Describe() api.ClientInfo {
-	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
-}
+// panelName identifies this adapter in logs and in the panel request metrics.
+const panelName = "Xboard"
 
-// Debug set the client debug for client
-func (c *APIClient) Debug() {
-	c.client.SetDebug(true)
-}
-
+// parseResponse validates one panel response and records its outcome exactly
+// once, so xrayr_panel_requests_total counts logical results rather than
+// transport events: a 200 whose body fails to parse is reported as a failure.
 func (c *APIClient) parseResponse(res *resty.Response, path string, err error) (*simplejson.Json, error) {
-	if err := api.CheckResponse(res, path, "Xboard", c.NodeID, err); err != nil {
+	if err := api.CheckResponse(res, path, panelName, c.NodeID, err); err != nil {
+		api.ObservePanelError(panelName, path, err)
 		return nil, err
 	}
 
 	rtn, err := simplejson.NewJson(res.Body())
 	if err != nil {
-		return nil, api.ClassifyError(path, "Xboard", c.NodeID, res.StatusCode(), fmt.Errorf("invalid JSON response"))
+		classified := api.ClassifyError(path, panelName, c.NodeID, res.StatusCode(), fmt.Errorf("invalid JSON response"))
+		api.ObservePanelError(panelName, path, classified)
+		return nil, classified
 	}
 
+	api.ObservePanelRequest(panelName, path, api.ResultSuccess)
 	return rtn, nil
 }
 
@@ -95,26 +87,27 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 	server := new(serverConfig)
 	path := "/api/v1/server/UniProxy/config"
 
-	res, err := c.client.R().
+	res, err := c.Client.R().
 		SetHeader("If-None-Match", c.eTags["node"]).
 		ForceContentType("application/json").
 		Get(path)
 
-	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
-	if res.StatusCode() == 304 {
-		return nil, api.ErrNodeNotModified
-	}
-	// update etag
-	if res.Header().Get("Etag") != "" && res.Header().Get("Etag") != c.eTags["node"] {
-		c.eTags["node"] = res.Header().Get("Etag")
+	// A 304 means the cached node config is still current.
+	if err := api.ApplyETag(res, c.eTags, "node", api.ErrNodeNotModified); err != nil {
+		return nil, err
 	}
 
 	nodeInfoResp, err := c.parseResponse(res, path, err)
 	if err != nil {
 		return nil, err
 	}
-	b, _ := nodeInfoResp.Encode()
-	json.Unmarshal(b, server)
+	body, err := nodeInfoResp.Encode()
+	if err != nil {
+		return nil, api.ClassifyError(path, panelName, c.NodeID, res.StatusCode(), fmt.Errorf("encode node config response: %w", err))
+	}
+	if err := json.Unmarshal(body, server); err != nil {
+		return nil, api.ClassifyError(path, panelName, c.NodeID, res.StatusCode(), fmt.Errorf("decode node config response: %w", err))
+	}
 
 	if server.ServerPort == 0 {
 		return nil, errors.New("server port must > 0")
@@ -152,26 +145,27 @@ func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 		return nil, fmt.Errorf("unsupported node type: %s", c.NodeType)
 	}
 
-	res, err := c.client.R().
+	res, err := c.Client.R().
 		SetHeader("If-None-Match", c.eTags["users"]).
 		ForceContentType("application/json").
 		Get(path)
 
-	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
-	if res.StatusCode() == 304 {
-		return nil, api.ErrUserNotModified
-	}
-	// update etag
-	if res.Header().Get("Etag") != "" && res.Header().Get("Etag") != c.eTags["users"] {
-		c.eTags["users"] = res.Header().Get("Etag")
+	// A 304 means the cached user list is still current.
+	if err := api.ApplyETag(res, c.eTags, "users", api.ErrUserNotModified); err != nil {
+		return nil, err
 	}
 
 	usersResp, err := c.parseResponse(res, path, err)
 	if err != nil {
 		return nil, err
 	}
-	b, _ := usersResp.Get("users").Encode()
-	json.Unmarshal(b, &users)
+	body, err := usersResp.Get("users").Encode()
+	if err != nil {
+		return nil, api.ClassifyError(path, panelName, c.NodeID, res.StatusCode(), fmt.Errorf("encode user list response: %w", err))
+	}
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, api.ClassifyError(path, panelName, c.NodeID, res.StatusCode(), fmt.Errorf("decode user list response: %w", err))
+	}
 	if len(users) == 0 {
 		return nil, errors.New("users is null")
 	}
@@ -211,7 +205,7 @@ func (c *APIClient) ReportUserTraffic(userTraffic *[]api.UserTraffic) error {
 		data[traffic.UID] = []int64{traffic.Upload, traffic.Download}
 	}
 
-	res, err := c.client.R().SetBody(data).ForceContentType("application/json").Post(path)
+	res, err := c.Client.R().SetBody(data).ForceContentType("application/json").Post(path)
 	_, err = c.parseResponse(res, path, err)
 	if err != nil {
 		return err

@@ -200,6 +200,7 @@ ControllerConfig:
 | `DisableUploadTraffic` | bool | 禁止上报流量到面板 |
 | `DisableGetRule` | bool | 禁止从面板获取审计规则 |
 | `DisableSniffing` | bool | 关闭域名嗅探 |
+| `DisableCoreHeartbeat` | bool | 关闭内核心跳探测（默认开启，探测连续失败 3 次会退出进程交由服务管理器重启） |
 | `EnableProxyProtocol` | bool | 启用 ProxyProtocol 获取中转 IP |
 | `EnableFallback` | bool | 启用 Fallback（仅对 VLESS 和 Trojan 有效） |
 | `EnableREALITY` | bool | 启用 REALITY |
