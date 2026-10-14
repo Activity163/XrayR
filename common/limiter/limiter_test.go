@@ -59,8 +59,8 @@ func TestGetUserBucketReportsAnUnknownInbound(t *testing.T) {
 // the connection path.
 func BenchmarkGetUserBucket(b *testing.B) {
 	for name, users := range map[string][]api.UserInfo{
-		"unlimited":  {{UID: 1, Email: "a@example.com"}},
-		"throttled":  {{UID: 1, Email: "a@example.com", SpeedLimit: 1000}},
+		"unlimited":   {{UID: 1, Email: "a@example.com"}},
+		"throttled":   {{UID: 1, Email: "a@example.com", SpeedLimit: 1000}},
 		"devicelimit": {{UID: 1, Email: "a@example.com", DeviceLimit: 3}},
 	} {
 		l := testLimiter(b, &users)
