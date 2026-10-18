@@ -181,9 +181,10 @@ Nodes:
 
 REALITY 节点不需要 `CertConfig`，证书相关的申请与续签会被自动跳过。
 
-### 用本地配置覆盖面板（可选）
+### 本地 REALITY 配置（仅兜底）
 
-想让 XrayR 自己掌握 REALITY 参数、不跟随面板时，显式写：
+REALITY 参数以面板为准。只有当**面板没有把节点描述成 REALITY**（`tls` 不是 2）时，
+本地的 `REALITYConfigs` 才会被用来补一个 REALITY 服务端：
 
 ```yaml
 ControllerConfig:
@@ -200,10 +201,17 @@ ControllerConfig:
       - "abcdef0123456789"
 ```
 
-**本地优先**：只要 `EnableREALITY: true` 且 `REALITYConfigs` 非空，就用这份本地配置，忽略面板下发的值。
-想让节点**始终跟随面板**，加 `DisableLocalREALITYConfig: true` 即可（此时 `REALITYConfigs` 可以整段不写）。
+**优先级**：
 
-> `DisableLocalREALITYConfig` 这个名字是历史遗留，含义是"**不要用本地**的 REALITY 配置"，而不是"禁用 REALITY"。
+1. 面板说这个节点是 REALITY → **用面板的 dest / server_name / private_key / short_id / xver**，
+   本地 `REALITYConfigs` 一律忽略（只保留 `Show` 这个调试开关）。
+2. 面板没说 REALITY，但本地配了 → 用本地的。
+3. 两边都没有 → 不启用 REALITY。
+
+> 为什么面板优先：面板下发给客户端的就是它自己那份参数。如果服务端用了本地另一套，
+> 客户端握手会直接失败，而且日志里看不出原因。
+>
+> `DisableLocalREALITYConfig: true` 仍然有效，作用是**关掉第 2 条兜底**（永远不用本地 REALITY 参数）。
 
 ## 配置参数说明
 

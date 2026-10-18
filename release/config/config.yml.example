@@ -55,12 +55,12 @@ Nodes:
           Path: # HTTP PATH, Empty for any
           Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
           ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
-      # REALITY follows the panel by default: a node whose TLS type is 2 supplies
-      # dest / server_name / private_key / short_id, so nothing below is needed.
-      # The block is a local override -- when EnableREALITY is true and
-      # REALITYConfigs is non-empty, the panel's values are ignored.
-      DisableLocalREALITYConfig: false  # true = always use the panel's REALITY settings
-      EnableREALITY: false # Use the local REALITY settings below
+      # REALITY comes from the panel: a node whose TLS type is 2 supplies
+      # dest / server_name / private_key / short_id, so nothing below is needed and
+      # the panel's values always win. The block is only a fallback for a node the
+      # panel does not describe as REALITY.
+      DisableLocalREALITYConfig: false  # true = never build REALITY from the block below
+      EnableREALITY: false # Fallback REALITY when the panel does not supply it
       REALITYConfigs:
         Show: true # Show REALITY debug
         Dest: www.amazon.com:443 # Required, Same as fallback

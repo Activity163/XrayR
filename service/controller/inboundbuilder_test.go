@@ -229,9 +229,11 @@ func TestBuildRealityUsesPanelSettings(t *testing.T) {
 	}
 }
 
-// TestBuildRealityPrefersLocalSettings keeps the documented escape hatch: an
-// operator who configures REALITY locally gets exactly those values.
-func TestBuildRealityPrefersLocalSettings(t *testing.T) {
+// TestBuildRealityPanelWinsOverLocalSettings pins the precedence: when the panel
+// describes the node as REALITY, its parameters are the ones the panel hands to
+// clients, so they must be the ones the server uses. A stale local block must not
+// put the server and the clients on different realities.
+func TestBuildRealityPanelWinsOverLocalSettings(t *testing.T) {
 	config := &Config{
 		EnableREALITY: true,
 		REALITYConfigs: &REALITYConfig{
@@ -245,8 +247,59 @@ func TestBuildRealityPrefersLocalSettings(t *testing.T) {
 	if settings == nil {
 		t.Fatal("inbound was built without REALITY")
 	}
+	if settings.Dest != "www.amazon.com:443" {
+		t.Errorf("Dest = %q, want the panel's %q", settings.Dest, "www.amazon.com:443")
+	}
+	if len(settings.ServerNames) != 1 || settings.ServerNames[0] != "www.amazon.com" {
+		t.Errorf("ServerNames = %v, want the panel's [www.amazon.com]", settings.ServerNames)
+	}
+}
+
+// TestBuildRealityFallsBackToLocalSettings covers a node whose panel does not
+// describe REALITY at all: the local block is still usable, which is the only
+// reason the field survived.
+func TestBuildRealityFallsBackToLocalSettings(t *testing.T) {
+	node := realityNode()
+	node.EnableREALITY = false
+	node.REALITYConfig = nil
+
+	config := &Config{
+		EnableREALITY: true,
+		REALITYConfigs: &REALITYConfig{
+			Dest:        "www.microsoft.com:443",
+			ServerNames: []string{"www.microsoft.com"},
+			PrivateKey:  testRealityKey,
+			ShortIds:    []string{""},
+		},
+	}
+	settings := realitySettingsOf(t, config, node)
+	if settings == nil {
+		t.Fatal("inbound was built without REALITY")
+	}
 	if settings.Dest != "www.microsoft.com:443" {
 		t.Errorf("Dest = %q, want the locally configured %q", settings.Dest, "www.microsoft.com:443")
+	}
+}
+
+// TestBuildRealityFallbackCanBeDisabled checks DisableLocalREALITYConfig still
+// suppresses the local fallback for a node the panel does not describe as REALITY.
+func TestBuildRealityFallbackCanBeDisabled(t *testing.T) {
+	node := realityNode()
+	node.EnableREALITY = false
+	node.REALITYConfig = nil
+
+	config := &Config{
+		DisableLocalREALITYConfig: true,
+		EnableREALITY:             true,
+		REALITYConfigs: &REALITYConfig{
+			Dest:        "www.microsoft.com:443",
+			ServerNames: []string{"www.microsoft.com"},
+			PrivateKey:  testRealityKey,
+			ShortIds:    []string{""},
+		},
+	}
+	if settings := realitySettingsOf(t, config, node); settings != nil {
+		t.Errorf("REALITY was built from local settings despite DisableLocalREALITYConfig")
 	}
 }
 

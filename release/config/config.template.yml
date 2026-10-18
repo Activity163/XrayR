@@ -78,11 +78,10 @@ Nodes:
 #        Timeout: 5
 #        Expiry: 60
 #
-#      # REALITY 默认跟随面板：Xboard 节点把 TLS 类型选成 2，dest / server_name /
+#      # REALITY 以面板为准：Xboard 节点把 TLS 类型选成 2，dest / server_name /
 #      # private_key / short_id 会随节点配置一起下发，这里不用写任何东西。
-#      # 下面这段是「本地覆盖」：一旦 EnableREALITY 为 true 且 REALITYConfigs 非空，
-#      # 就会忽略面板下发的 REALITY 参数。
-#      EnableREALITY: false           # 用本地 REALITY 参数（一般不需要）
+#      # 下面这段只是兜底 —— 仅当面板没有把节点描述成 REALITY 时才生效。
+#      EnableREALITY: false           # 面板未提供 REALITY 时，用本地参数补一个
 #      REALITYConfigs:
 #        Show: true
 #        Dest: "www.amazon.com:443"

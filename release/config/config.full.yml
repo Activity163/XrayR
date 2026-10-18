@@ -47,8 +47,8 @@ Nodes:
       DisableIVCheck: false
       DisableSniffing: false
       DisableCoreHeartbeat: false
-      # REALITY is taken from the panel unless EnableREALITY + REALITYConfigs are
-      # set here, in which case these local values win.
+      # REALITY comes from the panel and its values always win. This block is only
+      # used when the panel does not describe the node as REALITY.
       DisableLocalREALITYConfig: false
       EnableREALITY: false
       REALITYConfigs:

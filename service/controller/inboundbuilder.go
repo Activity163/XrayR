@@ -191,25 +191,29 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 
 	// Build TLS and REALITY settings.
 	//
-	// REALITY can be described in two places: locally under ControllerConfig, or by
-	// the panel as part of the node's TLS settings. Local settings win only when the
-	// operator actually supplied them; otherwise the panel is authoritative, because
-	// a REALITY node's dest, server names, private key and short ids are part of the
-	// node configuration the panel owns. Treating "not configured locally" as "no
-	// REALITY" used to produce a node that listened as plain VLESS while the panel
-	// and every client believed it was REALITY.
-	localREALITY := !config.DisableLocalREALITYConfig && config.EnableREALITY && config.REALITYConfigs != nil
+	// REALITY belongs to the node configuration the panel owns: when a node is
+	// REALITY the panel also supplies dest, server names, private key and short
+	// ids, and those are exactly the values it hands to every client. The panel
+	// therefore wins whenever it describes REALITY -- using local values there
+	// would give the server one reality and the clients another. Local settings
+	// remain a fallback for nodes whose panel does not describe REALITY at all.
+	//
+	// Two bugs came from the old precedence. "Not configured locally" was treated
+	// as "no REALITY", so the default setup silently listened as plain VLESS; and
+	// the panel branch read config.REALITYConfigs.Show without checking for nil.
 	panelREALITY := nodeInfo.EnableREALITY && nodeInfo.REALITYConfig != nil
+	localREALITY := !panelREALITY && !config.DisableLocalREALITYConfig &&
+		config.EnableREALITY && config.REALITYConfigs != nil
 
 	var isREALITY bool
 	switch {
-	case localREALITY:
+	case panelREALITY:
 		isREALITY = true
 		streamSetting.Security = "reality"
 
-		r := config.REALITYConfigs
+		r := nodeInfo.REALITYConfig
 		streamSetting.REALITYSettings = &conf.REALITYConfig{
-			Show:         r.Show,
+			Show:         realityShow(config),
 			Dest:         []byte(`"` + r.Dest + `"`),
 			Xver:         r.ProxyProtocolVer,
 			ServerNames:  r.ServerNames,
@@ -219,13 +223,13 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 			MaxTimeDiff:  r.MaxTimeDiff,
 			ShortIds:     r.ShortIds,
 		}
-	case panelREALITY:
+	case localREALITY:
 		isREALITY = true
 		streamSetting.Security = "reality"
 
-		r := nodeInfo.REALITYConfig
+		r := config.REALITYConfigs
 		streamSetting.REALITYSettings = &conf.REALITYConfig{
-			Show:         realityShow(config),
+			Show:         r.Show,
 			Dest:         []byte(`"` + r.Dest + `"`),
 			Xver:         r.ProxyProtocolVer,
 			ServerNames:  r.ServerNames,

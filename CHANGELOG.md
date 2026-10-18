@@ -12,9 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `DisableLocalREALITYConfig` was set, so the default configuration — panel node
   with TLS type 2, nothing about REALITY in `config.yml` — produced a plain VLESS
   listener while the panel and every client expected a REALITY handshake. The
-  panel is now the source of truth unless the operator explicitly configures
-  local REALITY (`EnableREALITY: true` with a non-empty `REALITYConfigs`), which
-  still wins as before.
+  panel now always wins when it describes the node as REALITY, because those are
+  the parameters it hands to clients; `ControllerConfig.REALITYConfigs` is only a
+  fallback for a node the panel does not describe as REALITY, and
+  `DisableLocalREALITYConfig: true` still suppresses that fallback.
 - Setting `DisableLocalREALITYConfig: true` without a `REALITYConfigs` block
   dereferenced a nil pointer and killed the process during startup. That is the
   configuration the Xboard guide recommended, so the crash was reachable by
