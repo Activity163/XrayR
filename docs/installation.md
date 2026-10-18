@@ -72,10 +72,11 @@ xrayr start
 ```
 
 这 4 个值都在面板后台的「节点」页面里。文件里同时列出了可用的面板类型、协议，
-以及所有可选的高级配置（默认注释掉，需要时去掉 `#` 即可）。
+以及常用的可选配置（默认注释掉，需要时去掉 `#` 即可）。
 
-`xrayr check` 会校验配置；如果检测到还是示例值（`panel.example.com` / `CHANGE_ME`），
-会明确提示。完整字段说明见 `release/config/config.full.yml`。
+`xrayr check` 会校验配置；如果还是示例值（`panel.example.com` / `CHANGE_ME`），
+会给出警告并指出是哪个字段。完整字段说明见
+[config.full.yml](https://github.com/Activity163/XrayR/blob/master/release/config/config.full.yml)。
 
 > 也保留交互式生成：`XrayR config init`。默认流程是手改这份带注释的模板 ——
 > 字段含义都写在文件里，不需要来回查文档。

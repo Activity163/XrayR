@@ -230,3 +230,53 @@ Nodes:
 	assert.Contains(t, paths, "Nodes[0].ControllerConfig.AutoSpeedLimitConfig.LimitSpeed")
 	assert.Contains(t, paths, "Nodes[0].ControllerConfig.AutoSpeedLimitConfig.LimitDuration")
 }
+
+// TestValidateWarnsAboutTemplatePlaceholders keeps the promise the installed
+// template makes: leaving the example values in place is reported, instead of
+// starting a node that only fails later with an unreachable-host error.
+func TestValidateWarnsAboutTemplatePlaceholders(t *testing.T) {
+	result, err := Decode(strings.NewReader(`
+ConfigVersion: 1
+Nodes:
+  - PanelType: Xboard
+    ApiConfig:
+      ApiHost: https://panel.example.com/
+      ApiKey: CHANGE_ME
+      NodeID: 1
+      NodeType: Vmess
+`))
+	require.NoError(t, err)
+	ApplyDefaults(result.Config, t.TempDir())
+
+	paths := make([]string, 0)
+	for _, issue := range Validate(result.Config) {
+		if issue.Severity == SeverityWarning {
+			paths = append(paths, issue.Path)
+		}
+	}
+	assert.Contains(t, paths, "Nodes[0].ApiConfig.ApiHost")
+	assert.Contains(t, paths, "Nodes[0].ApiConfig.ApiKey")
+}
+
+// TestValidateAcceptsRealPanelValues guards against the placeholder check firing
+// on an edited configuration.
+func TestValidateAcceptsRealPanelValues(t *testing.T) {
+	result, err := Decode(strings.NewReader(`
+ConfigVersion: 1
+Nodes:
+  - PanelType: Xboard
+    ApiConfig:
+      ApiHost: https://panel.my-domain.net
+      ApiKey: 7f3c9a2b1d
+      NodeID: 4
+      NodeType: Vmess
+`))
+	require.NoError(t, err)
+	ApplyDefaults(result.Config, t.TempDir())
+
+	for _, issue := range Validate(result.Config) {
+		if strings.Contains(issue.Message, "template") {
+			t.Errorf("unexpected placeholder warning for a real configuration: %s", issue.Message)
+		}
+	}
+}

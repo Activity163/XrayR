@@ -3,6 +3,24 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- `config check` warns when `ApiHost` or `ApiKey` still holds the installed
+  template's placeholder. Both values are syntactically valid, so the check used
+  to pass and the node only failed later with an unreachable host.
+
+### Changed
+
+- The installed configuration template now matches what the code does.
+  `EnableDNS` was documented as switching on `dns.json`; it actually switches the
+  outbound domain strategy from `Asis` to `DNSType`, while `DnsConfigPath` is
+  applied regardless. The template also documents `EnableVless` (a VLESS node only
+  reads `network_settings` when it is set), the REALITY fallback precedence,
+  `Diagnostics`, and stops pointing at `release/config/config.full.yml`, which does
+  not exist on an installed node.
+
 ## [1.0.2] - 2026-10-19
 
 REALITY nodes now take their parameters from the panel, which is the only place
