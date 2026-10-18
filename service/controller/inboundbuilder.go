@@ -189,40 +189,51 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 	}
 	streamSetting.Network = &transportProtocol
 
-	// Build TLS and REALITY settings
-	var isREALITY bool
-	if config.DisableLocalREALITYConfig {
-		if nodeInfo.REALITYConfig != nil && nodeInfo.EnableREALITY {
-			isREALITY = true
-			streamSetting.Security = "reality"
+	// Build TLS and REALITY settings.
+	//
+	// REALITY can be described in two places: locally under ControllerConfig, or by
+	// the panel as part of the node's TLS settings. Local settings win only when the
+	// operator actually supplied them; otherwise the panel is authoritative, because
+	// a REALITY node's dest, server names, private key and short ids are part of the
+	// node configuration the panel owns. Treating "not configured locally" as "no
+	// REALITY" used to produce a node that listened as plain VLESS while the panel
+	// and every client believed it was REALITY.
+	localREALITY := !config.DisableLocalREALITYConfig && config.EnableREALITY && config.REALITYConfigs != nil
+	panelREALITY := nodeInfo.EnableREALITY && nodeInfo.REALITYConfig != nil
 
-			r := nodeInfo.REALITYConfig
-			streamSetting.REALITYSettings = &conf.REALITYConfig{
-				Show:         config.REALITYConfigs.Show,
-				Dest:         []byte(`"` + r.Dest + `"`),
-				Xver:         r.ProxyProtocolVer,
-				ServerNames:  r.ServerNames,
-				PrivateKey:   r.PrivateKey,
-				MinClientVer: r.MinClientVer,
-				MaxClientVer: r.MaxClientVer,
-				MaxTimeDiff:  r.MaxTimeDiff,
-				ShortIds:     r.ShortIds,
-			}
-		}
-	} else if config.EnableREALITY && config.REALITYConfigs != nil {
+	var isREALITY bool
+	switch {
+	case localREALITY:
 		isREALITY = true
 		streamSetting.Security = "reality"
 
+		r := config.REALITYConfigs
 		streamSetting.REALITYSettings = &conf.REALITYConfig{
-			Show:         config.REALITYConfigs.Show,
-			Dest:         []byte(`"` + config.REALITYConfigs.Dest + `"`),
-			Xver:         config.REALITYConfigs.ProxyProtocolVer,
-			ServerNames:  config.REALITYConfigs.ServerNames,
-			PrivateKey:   config.REALITYConfigs.PrivateKey,
-			MinClientVer: config.REALITYConfigs.MinClientVer,
-			MaxClientVer: config.REALITYConfigs.MaxClientVer,
-			MaxTimeDiff:  config.REALITYConfigs.MaxTimeDiff,
-			ShortIds:     config.REALITYConfigs.ShortIds,
+			Show:         r.Show,
+			Dest:         []byte(`"` + r.Dest + `"`),
+			Xver:         r.ProxyProtocolVer,
+			ServerNames:  r.ServerNames,
+			PrivateKey:   r.PrivateKey,
+			MinClientVer: r.MinClientVer,
+			MaxClientVer: r.MaxClientVer,
+			MaxTimeDiff:  r.MaxTimeDiff,
+			ShortIds:     r.ShortIds,
+		}
+	case panelREALITY:
+		isREALITY = true
+		streamSetting.Security = "reality"
+
+		r := nodeInfo.REALITYConfig
+		streamSetting.REALITYSettings = &conf.REALITYConfig{
+			Show:         realityShow(config),
+			Dest:         []byte(`"` + r.Dest + `"`),
+			Xver:         r.ProxyProtocolVer,
+			ServerNames:  r.ServerNames,
+			PrivateKey:   r.PrivateKey,
+			MinClientVer: r.MinClientVer,
+			MaxClientVer: r.MaxClientVer,
+			MaxTimeDiff:  r.MaxTimeDiff,
+			ShortIds:     r.ShortIds,
 		}
 	}
 
@@ -337,4 +348,14 @@ func buildTrojanFallbacks(fallbackConfigs []*FallBackConfig) ([]*conf.TrojanInbo
 		}
 	}
 	return trojanFallBacks, nil
+}
+
+// realityShow reports whether xray-core should log REALITY debugging detail.
+// It is the only field taken from the local settings when the panel supplies the
+// REALITY parameters, so ControllerConfig.REALITYConfigs may legitimately be nil.
+func realityShow(config *Config) bool {
+	if config.REALITYConfigs == nil {
+		return false
+	}
+	return config.REALITYConfigs.Show
 }

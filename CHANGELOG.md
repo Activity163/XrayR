@@ -3,6 +3,23 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A REALITY node whose parameters come from the panel was built without REALITY
+  at all. `InboundBuilder` only consulted the panel when
+  `DisableLocalREALITYConfig` was set, so the default configuration — panel node
+  with TLS type 2, nothing about REALITY in `config.yml` — produced a plain VLESS
+  listener while the panel and every client expected a REALITY handshake. The
+  panel is now the source of truth unless the operator explicitly configures
+  local REALITY (`EnableREALITY: true` with a non-empty `REALITYConfigs`), which
+  still wins as before.
+- Setting `DisableLocalREALITYConfig: true` without a `REALITYConfigs` block
+  dereferenced a nil pointer and killed the process during startup. That is the
+  configuration the Xboard guide recommended, so the crash was reachable by
+  following the documentation.
+
 ## [1.0.1] - 2026-10-15
 
 Operator-facing fixes for the 1.0.0 release: the node can find its configuration

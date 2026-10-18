@@ -150,7 +150,40 @@ Xboard 面板需要在节点传输协议配置中增加如下内容：
 
 ## 对接 Reality
 
-Xboard 面板需在节点配置中启用 Reality（TLS 类型选择 2），XrayR 配置中启用：
+**面板配好就够了，XrayR 的配置文件不需要写任何 REALITY 字段。**
+
+在 Xboard 的节点配置里把 TLS 类型选成 **2（Reality）**，填好 `dest` / `server_name` / `private_key` / `short_id`，
+XrayR 拉取节点时会一并取回这些参数并直接用于构建 inbound：
+
+```yaml
+Nodes:
+  - PanelType: "Xboard"
+    ApiConfig:
+      ApiHost: "https://panel.example.com"
+      ApiKey: "YOUR_KEY"
+      NodeID: 7
+      NodeType: "Vless"
+      EnableVless: true      # VLESS 节点建议开启，否则读不到 network_settings 里的 path / serviceName
+    ControllerConfig:
+      ListenIP: 0.0.0.0
+      UpdatePeriodic: 60
+```
+
+面板 `tls_settings` 与 inbound 的对应关系：
+
+| 面板字段 | 作用 |
+|---|---|
+| `dest` + `server_port` | REALITY 回落的真实站点与端口 |
+| `server_name` | 客户端可用的 SNI |
+| `private_key` | 服务端私钥 |
+| `short_id` | 允许的 short id |
+| `xver` | PROXY protocol 版本 |
+
+REALITY 节点不需要 `CertConfig`，证书相关的申请与续签会被自动跳过。
+
+### 用本地配置覆盖面板（可选）
+
+想让 XrayR 自己掌握 REALITY 参数、不跟随面板时，显式写：
 
 ```yaml
 ControllerConfig:
@@ -167,9 +200,10 @@ ControllerConfig:
       - "abcdef0123456789"
 ```
 
-> **说明**
->
-> 如果已在 Xboard 面板侧配置了 Reality 参数，建议设置 `DisableLocalREALITYConfig: true` 以优先使用面板下发的配置。
+**本地优先**：只要 `EnableREALITY: true` 且 `REALITYConfigs` 非空，就用这份本地配置，忽略面板下发的值。
+想让节点**始终跟随面板**，加 `DisableLocalREALITYConfig: true` 即可（此时 `REALITYConfigs` 可以整段不写）。
+
+> `DisableLocalREALITYConfig` 这个名字是历史遗留，含义是"**不要用本地**的 REALITY 配置"，而不是"禁用 REALITY"。
 
 ## 配置参数说明
 

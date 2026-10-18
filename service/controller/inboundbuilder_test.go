@@ -1,12 +1,15 @@
 package controller_test
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
 	"github.com/XrayR-project/XrayR/api"
 	"github.com/XrayR-project/XrayR/common/mylego"
 	. "github.com/XrayR-project/XrayR/service/controller"
+	"github.com/xtls/xray-core/app/proxyman"
+	"github.com/xtls/xray-core/transport/internet/reality"
 )
 
 func TestBuildV2ray(t *testing.T) {
@@ -148,4 +151,129 @@ func TestBuildSSAllowsEveryNon2022Cipher(t *testing.T) {
 			t.Errorf("cipher %s: unexpected error: %v", cipher, err)
 		}
 	}
+}
+
+// testRealityKey is a syntactically valid x25519 private key; xray-core rejects
+// anything that does not decode to 32 bytes.
+const testRealityKey = "INqp4ZipJR0DMNSWgaeyfeMDugZ7OFhcRSbQQGhTPU4"
+
+// realityNode is the node a panel describes for VLESS + REALITY. Every REALITY
+// parameter lives in the panel's node configuration, not in the XrayR config file.
+func realityNode() *api.NodeInfo {
+	return &api.NodeInfo{
+		NodeType:          "Vless",
+		NodeID:            7,
+		Port:              443,
+		TransportProtocol: "tcp",
+		EnableTLS:         true,
+		EnableREALITY:     true,
+		EnableVless:       true,
+		VlessFlow:         "xtls-rprx-vision",
+		REALITYConfig: &api.REALITYConfig{
+			Dest:        "www.amazon.com:443",
+			ServerNames: []string{"www.amazon.com"},
+			PrivateKey:  testRealityKey,
+			ShortIds:    []string{"0123456789abcdef"},
+		},
+	}
+}
+
+// realitySettingsOf returns the REALITY settings xray-core would receive, or nil
+// when the inbound was built without REALITY.
+func realitySettingsOf(t *testing.T, config *Config, node *api.NodeInfo) *reality.Config {
+	t.Helper()
+	inbound, err := InboundBuilder(config, node, "test_tag")
+	if err != nil {
+		t.Fatalf("InboundBuilder: %v", err)
+	}
+	instance, err := inbound.ReceiverSettings.GetInstance()
+	if err != nil {
+		t.Fatalf("decode receiver settings: %v", err)
+	}
+	receiver, ok := instance.(*proxyman.ReceiverConfig)
+	if !ok {
+		t.Fatalf("unexpected receiver type %T", instance)
+	}
+	for _, setting := range receiver.StreamSettings.GetSecuritySettings() {
+		decoded, err := setting.GetInstance()
+		if err != nil {
+			t.Fatalf("decode security settings: %v", err)
+		}
+		if settings, ok := decoded.(*reality.Config); ok {
+			return settings
+		}
+	}
+	return nil
+}
+
+// TestBuildRealityUsesPanelSettings is the ordinary Xboard setup: the node is
+// REALITY in the panel and the XrayR config file says nothing about REALITY. The
+// panel's parameters must be used, otherwise the node listens as plain VLESS
+// while every client tries a REALITY handshake.
+func TestBuildRealityUsesPanelSettings(t *testing.T) {
+	settings := realitySettingsOf(t, &Config{}, realityNode())
+	if settings == nil {
+		t.Fatal("inbound was built without REALITY; the panel's REALITY settings were ignored")
+	}
+	if settings.Dest != "www.amazon.com:443" {
+		t.Errorf("Dest = %q, want the panel's %q", settings.Dest, "www.amazon.com:443")
+	}
+	if len(settings.ServerNames) != 1 || settings.ServerNames[0] != "www.amazon.com" {
+		t.Errorf("ServerNames = %v, want [www.amazon.com]", settings.ServerNames)
+	}
+	if string(settings.PrivateKey) != decodedTestRealityKey(t) {
+		t.Errorf("PrivateKey was not taken from the panel")
+	}
+	if len(settings.ShortIds) != 1 {
+		t.Errorf("ShortIds = %v, want one entry from the panel", settings.ShortIds)
+	}
+}
+
+// TestBuildRealityPrefersLocalSettings keeps the documented escape hatch: an
+// operator who configures REALITY locally gets exactly those values.
+func TestBuildRealityPrefersLocalSettings(t *testing.T) {
+	config := &Config{
+		EnableREALITY: true,
+		REALITYConfigs: &REALITYConfig{
+			Dest:        "www.microsoft.com:443",
+			ServerNames: []string{"www.microsoft.com"},
+			PrivateKey:  testRealityKey,
+			ShortIds:    []string{""},
+		},
+	}
+	settings := realitySettingsOf(t, config, realityNode())
+	if settings == nil {
+		t.Fatal("inbound was built without REALITY")
+	}
+	if settings.Dest != "www.microsoft.com:443" {
+		t.Errorf("Dest = %q, want the locally configured %q", settings.Dest, "www.microsoft.com:443")
+	}
+}
+
+// TestBuildRealityFromPanelWithoutLocalConfig covers DisableLocalREALITYConfig
+// with no REALITYConfigs block. That used to dereference a nil pointer and take
+// the process down before the node ever started.
+func TestBuildRealityFromPanelWithoutLocalConfig(t *testing.T) {
+	settings := realitySettingsOf(t, &Config{DisableLocalREALITYConfig: true}, realityNode())
+	if settings == nil {
+		t.Fatal("inbound was built without REALITY")
+	}
+	if settings.Dest != "www.amazon.com:443" {
+		t.Errorf("Dest = %q, want the panel's %q", settings.Dest, "www.amazon.com:443")
+	}
+}
+
+// decodedTestRealityKey returns the raw 32 bytes xray-core ends up with: the
+// config builder base64-decodes the private key without padding, so the built
+// settings hold the decoded key rather than the string from the config file.
+func decodedTestRealityKey(t *testing.T) string {
+	t.Helper()
+	key, err := base64.RawStdEncoding.DecodeString(testRealityKey)
+	if err != nil {
+		t.Fatalf("decode test key: %v", err)
+	}
+	if len(key) != 32 {
+		t.Fatalf("test key decodes to %d bytes, want 32", len(key))
+	}
+	return string(key)
 }
