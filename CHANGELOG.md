@@ -3,7 +3,10 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.0.2] - 2026-10-19
+
+REALITY nodes now take their parameters from the panel, which is the only place
+those parameters exist for an Xboard deployment.
 
 ### Fixed
 
