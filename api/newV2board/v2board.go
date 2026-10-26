@@ -26,6 +26,8 @@ type APIClient struct {
 	LocalRuleList []api.DetectRule
 	resp          atomic.Value
 	eTags         map[string]string
+	pushInterval  atomic.Int64
+	pullInterval  atomic.Int64
 }
 
 // New create an api instance
@@ -113,6 +115,9 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 		return nil, errors.New("server port must > 0")
 	}
 
+	c.pushInterval.Store(int64(server.BaseConfig.PushInterval))
+	c.pullInterval.Store(int64(server.BaseConfig.PullInterval))
+
 	c.resp.Store(server)
 
 	switch c.NodeType {
@@ -184,7 +189,10 @@ func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 			u.SpeedLimit = uint64(users[i].SpeedLimit * 1000000 / 8)
 		}
 
-		u.DeviceLimit = c.DeviceLimit // todo waiting v2board send configuration
+		u.DeviceLimit = c.DeviceLimit // Local DeviceLimit wins; fall back to the panel's per-user value.
+		if u.DeviceLimit == 0 {
+			u.DeviceLimit = users[i].DeviceLimit
+		}
 		u.Email = u.UUID + "@v2board.user"
 		if c.NodeType == "Shadowsocks" {
 			u.Passwd = u.UUID
@@ -242,6 +250,18 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 // ReportIllegal implements the API interface
 func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 	return nil
+}
+
+// PullInterval implements the api.IntervalsProvider interface. It returns the
+// pull_interval the panel last sent, or 0 when the panel did not provide one.
+func (c *APIClient) PullInterval() int {
+	return int(c.pullInterval.Load())
+}
+
+// PushInterval implements the api.IntervalsProvider interface. It returns the
+// push_interval the panel last sent, or 0 when the panel did not provide one.
+func (c *APIClient) PushInterval() int {
+	return int(c.pushInterval.Load())
 }
 
 // parseTrojanNodeResponse parse the response for the given nodeInfo format
@@ -321,7 +341,12 @@ func (c *APIClient) parseV2rayNodeResponse(s *serverConfig) (*api.NodeInfo, erro
 		ShortIds:         []string{s.VlessTlsSettings.ShortId},
 	}
 
-	if c.EnableVless {
+	// Xboard sends the transport settings of every node type in the top-level
+	// "networkSettings" key. "network_settings" only exists for deployments of
+	// other panels that keep a separate VLESS block; when the panel provides
+	// nothing there, keep the parsed "networkSettings" instead of wiping the
+	// transport parameters (ws path/host, grpc serviceName) with zero values.
+	if c.EnableVless && vlessNetworkSettingsPresent(&s.VlessNetworkSettings) {
 		s.NetworkSettings = s.VlessNetworkSettings
 	}
 
@@ -381,12 +406,25 @@ func (c *APIClient) parseV2rayNodeResponse(s *serverConfig) (*api.NodeInfo, erro
 		Host:              host,
 		EnableVless:       c.EnableVless,
 		VlessFlow:         s.VlessFlow,
+		Decryption:        s.Decryption,
 		ServiceName:       s.NetworkSettings.ServiceName,
 		Header:            header,
 		EnableREALITY:     enableREALITY,
 		REALITYConfig:     &realityConfig,
 		NameServerConfig:  s.parseDNSConfig(),
 	}, nil
+}
+
+// vlessNetworkSettingsPresent reports whether the panel supplied a separate
+// VLESS transport block ("network_settings") with actual content.
+func vlessNetworkSettingsPresent(s *struct {
+	Path        string           `json:"path"`
+	Host        string           `json:"host"`
+	Headers     *json.RawMessage `json:"headers"`
+	ServiceName string           `json:"serviceName"`
+	Header      *json.RawMessage `json:"header"`
+}) bool {
+	return s.Path != "" || s.Host != "" || s.ServiceName != "" || s.Headers != nil || s.Header != nil
 }
 
 func (s *serverConfig) parseDNSConfig() (nameServerList []*conf.NameServerConfig) {

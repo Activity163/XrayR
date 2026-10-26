@@ -56,12 +56,23 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 	case "V2ray", "Vmess", "Vless":
 		if nodeInfo.EnableVless || (nodeInfo.NodeType == "Vless" && nodeInfo.NodeType != "Vmess") {
 			protocol = "vless"
+			// The panel may enable VLESS Encryption and hand over the server
+			// private key as the decryption string. xray-core rejects an empty
+			// decryption, and rejects any decryption other than "none" together
+			// with fallbacks, so resolve both constraints here.
+			decryption := nodeInfo.Decryption
+			if decryption == "" {
+				decryption = "none"
+			}
 			// Enable fallback
 			if config.EnableFallback {
 				fallbackConfigs, err := buildVlessFallbacks(config.FallBackConfigs)
 				if err == nil {
+					if decryption != "none" {
+						return nil, fmt.Errorf("vless decryption %q cannot be combined with fallbacks; disable EnableFallback or turn off VLESS Encryption in the panel", decryption)
+					}
 					proxySetting = &conf.VLessInboundConfig{
-						Decryption: "none",
+						Decryption: decryption,
 						Fallbacks:  fallbackConfigs,
 					}
 				} else {
@@ -69,7 +80,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 				}
 			} else {
 				proxySetting = &conf.VLessInboundConfig{
-					Decryption: "none",
+					Decryption: decryption,
 				}
 			}
 		} else {

@@ -69,6 +69,14 @@ type Controller struct {
 	snapshotStore *snapshot.Store
 	lastSync      time.Time
 	lastError     string
+	// pullPeriod/pushPeriod are the effective sync intervals. pullPeriod drives
+	// the node monitor and core heartbeat, pushPeriod drives the user monitor
+	// (traffic reporting). Only the Start path and the node monitor write them,
+	// and the node monitor writes them from inside the periodic task's own
+	// goroutine, so no locking is needed: task.Periodic re-reads Interval when
+	// it schedules each next run.
+	pullPeriod time.Duration
+	pushPeriod time.Duration
 	// coreFailures counts consecutive failed liveness probes. Only the heartbeat
 	// task writes it, but it is atomic so a future reader cannot race.
 	coreFailures atomic.Int64
@@ -136,6 +144,10 @@ func New(server *core.Instance, client api.Client, config *Config, panelType str
 		dispatcher:   server.GetFeature(mydispatcher.Type()).(*mydispatcher.DefaultDispatcher),
 		startAt:      time.Now(),
 		logger:       logger,
+		// Defaults for paths that run before Start() applies the panel's
+		// intervals (e.g. tests invoking a monitor directly).
+		pullPeriod: time.Duration(config.UpdatePeriodic) * time.Second,
+		pushPeriod: time.Duration(config.UpdatePeriodic) * time.Second,
 	}
 	if config.SnapshotPath != "" {
 		controller.snapshotStore = snapshot.New(config.SnapshotPath, clientInfo, time.Duration(config.SnapshotMaxAge)*time.Second)
@@ -205,10 +217,27 @@ func (c *Controller) Start() error {
 		c.limitedUsers = make(map[api.UserInfo]LimitInfo)
 		c.warnedUsers = make(map[api.UserInfo]int)
 	}
+	// The panel may steer the sync cadence (Xboard base_config.push_interval /
+	// pull_interval). Pull drives the node monitor and core heartbeat, push
+	// drives the user monitor (traffic reporting); values <= 0 keep the locally
+	// configured period.
+	c.pullPeriod = time.Duration(c.config.UpdatePeriodic) * time.Second
+	c.pushPeriod = c.pullPeriod
+	if provider, ok := c.apiClient.(api.IntervalsProvider); ok {
+		if provider.PullInterval() > 0 {
+			c.pullPeriod = time.Duration(provider.PullInterval()) * time.Second
+		}
+		if provider.PushInterval() > 0 {
+			c.pushPeriod = time.Duration(provider.PushInterval()) * time.Second
+		}
+		if c.pullPeriod != c.pushPeriod {
+			c.logger.Printf("Panel intervals applied: pull=%s push=%s", c.pullPeriod, c.pushPeriod)
+		}
+	}
 	c.tasks = append(c.tasks,
-		periodicTask{tag: "node monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("node monitor", c.nodeInfoMonitor)}},
-		periodicTask{tag: "user monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("user monitor", c.userInfoMonitor)}},
-		periodicTask{tag: "core heartbeat", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Second, Execute: c.guardTask("core heartbeat", c.coreHeartbeatMonitor)}},
+		periodicTask{tag: "node monitor", Periodic: &task.Periodic{Interval: c.pullPeriod, Execute: c.guardTask("node monitor", c.nodeInfoMonitor)}},
+		periodicTask{tag: "user monitor", Periodic: &task.Periodic{Interval: c.pushPeriod, Execute: c.guardTask("user monitor", c.userInfoMonitor)}},
+		periodicTask{tag: "core heartbeat", Periodic: &task.Periodic{Interval: c.pullPeriod, Execute: c.guardTask("core heartbeat", c.coreHeartbeatMonitor)}},
 	)
 	if newNodeInfo.EnableTLS && !c.config.EnableREALITY {
 		c.tasks = append(c.tasks, periodicTask{tag: "cert monitor", Periodic: &task.Periodic{Interval: time.Duration(c.config.UpdatePeriodic) * time.Minute, Execute: c.guardTask("cert monitor", c.certMonitor)}})
@@ -300,9 +329,17 @@ func (c *Controller) DiagnosticStatus() diagnostics.NodeStatus {
 	}
 }
 
+// intervalOrFallback returns seconds when it is positive, otherwise fallback.
+func intervalOrFallback(seconds, fallback int) int {
+	if seconds > 0 {
+		return seconds
+	}
+	return fallback
+}
+
 func (c *Controller) nodeInfoMonitor() (err error) {
 	// delay to start
-	if time.Since(c.startAt) < time.Duration(c.config.UpdatePeriodic)*time.Second {
+	if time.Since(c.startAt) < c.pullPeriod {
 		return nil
 	}
 
@@ -320,6 +357,30 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 	}
 	if newNodeInfo.Port == 0 {
 		return errors.New("server port must > 0")
+	}
+
+	// Follow the cadence the panel advertises, if any. Writing the fields here
+	// is safe: this runs on the node monitor's own periodic goroutine and
+	// task.Periodic re-reads Interval right after Execute returns.
+	if provider, ok := c.apiClient.(api.IntervalsProvider); ok {
+		newPull := time.Duration(intervalOrFallback(provider.PullInterval(), c.config.UpdatePeriodic)) * time.Second
+		newPush := time.Duration(intervalOrFallback(provider.PushInterval(), c.config.UpdatePeriodic)) * time.Second
+		if newPull != c.pullPeriod {
+			c.pullPeriod = newPull
+			c.logger.Printf("Panel pull interval changed to %s", newPull)
+		}
+		if newPush != c.pushPeriod {
+			c.pushPeriod = newPush
+			c.logger.Printf("Panel push interval changed to %s", newPush)
+		}
+		for i := range c.tasks {
+			switch c.tasks[i].tag {
+			case "node monitor", "core heartbeat":
+				c.tasks[i].Interval = c.pullPeriod
+			case "user monitor":
+				c.tasks[i].Interval = c.pushPeriod
+			}
+		}
 	}
 
 	// Update User
@@ -576,7 +637,10 @@ func limitUser(c *Controller, tag string, user api.UserInfo, silentUsers *[]api.
 }
 
 func (c *Controller) userInfoMonitor() (err error) {
-	if time.Since(c.startAt) < time.Duration(c.config.UpdatePeriodic)*time.Second {
+	// Delay to start. The user monitor shares startAt with the other monitors
+	// and may run on a different (push) period, so gate on the pull period to
+	// keep the first round aligned with the initial sync.
+	if time.Since(c.startAt) < c.pullPeriod {
 		return nil
 	}
 
@@ -619,8 +683,13 @@ func (c *Controller) userInfoMonitor() (err error) {
 	var userTraffic []api.UserTraffic
 	var upCounterList []stats.Counter
 	var downCounterList []stats.Counter
+	// AutoSpeedLimit thresholds are expressed per reporting period, which is the
+	// effective push period rather than the static config value.
 	AutoSpeedLimit := int64(c.config.AutoSpeedLimitConfig.Limit)
-	UpdatePeriodic := int64(c.config.UpdatePeriodic)
+	UpdatePeriodic := int64(c.pushPeriod / time.Second)
+	if UpdatePeriodic <= 0 {
+		UpdatePeriodic = int64(c.config.UpdatePeriodic)
+	}
 	limitedUsers := make([]api.UserInfo, 0)
 	if userList != nil {
 		for _, user := range *userList {
@@ -803,7 +872,7 @@ func (c *Controller) coreHeartbeatMonitor() error {
 		return nil
 	}
 	// Delay to start, so the first probe cannot race the initial listener setup.
-	if time.Since(c.startAt) < time.Duration(c.config.UpdatePeriodic)*time.Second {
+	if time.Since(c.startAt) < c.pullPeriod {
 		return nil
 	}
 	node := c.currentNode()

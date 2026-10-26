@@ -46,6 +46,7 @@ type NodeInfo struct {
 	RouteOnly           bool
 	EnableVless         bool
 	VlessFlow           string
+	Decryption          string // VLESS inbound decryption, "none" unless the panel enables VLESS Encryption.
 	CypherMethod        string
 	ServerKey           string
 	ServiceName         string

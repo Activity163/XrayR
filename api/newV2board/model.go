@@ -44,6 +44,7 @@ type v2ray struct {
 		Header      *json.RawMessage `json:"header"`
 	} `json:"network_settings"`
 	VlessFlow        string `json:"flow"`
+	Decryption       string `json:"decryption"`
 	VlessTlsSettings struct {
 		ServerPort string `json:"server_port"`
 		Dest       string `json:"dest"`
@@ -68,7 +69,8 @@ type route struct {
 }
 
 type user struct {
-	Id         int    `json:"id"`
-	Uuid       string `json:"uuid"`
-	SpeedLimit int    `json:"speed_limit"`
+	Id          int    `json:"id"`
+	Uuid        string `json:"uuid"`
+	SpeedLimit  int    `json:"speed_limit"`
+	DeviceLimit int    `json:"device_limit"`
 }

@@ -14,6 +14,16 @@ type RuleProvider interface {
 	GetNodeRule() (*[]DetectRule, error)
 }
 
+// IntervalsProvider exposes the sync intervals the panel wants the node to use
+// (Xboard's base_config.push_interval / pull_interval, in seconds). A value <= 0
+// means "not provided"; the controller then keeps its locally configured period.
+type IntervalsProvider interface {
+	// PullInterval is how often the node should pull node/user config.
+	PullInterval() int
+	// PushInterval is how often the node should report traffic and status.
+	PushInterval() int
+}
+
 // TrafficReporter reports per-user traffic to a panel.
 type TrafficReporter interface {
 	ReportUserTraffic(*[]UserTraffic) error
