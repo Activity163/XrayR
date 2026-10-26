@@ -5,13 +5,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-26
+
+The panel now steers what it always could describe but the node ignored.
+
 ### Added
+
+- The node follows the sync intervals the panel advertises in
+  `base_config`: `pull_interval` drives the node monitor and the core
+  heartbeat, `push_interval` drives traffic reporting (and the AutoSpeedLimit
+  thresholds, which are per reporting period). Values the panel does not send
+  fall back to the locally configured `UpdatePeriodic`. Changing the interval
+  in the panel takes effect on the node's next sync without a restart.
+- The per-user `device_limit` from the panel's user list is honoured when no
+  local `DeviceLimit` is configured. A local value still wins.
+
+### Fixed
+
+- A VLESS node with `EnableVless: true` lost its transport parameters. The
+  adapter overwrote the parsed top-level `networkSettings` with the separate
+  `network_settings` block, which Xboard never sends, so the zero struct wiped
+  the WebSocket path/host and the gRPC serviceName. The overwrite now happens
+  only when the panel actually supplies that block.
+- The VLESS decryption the panel sends when VLESS Encryption is enabled was
+  discarded in favour of a hardcoded `none`. It is now passed through to the
+  inbound; combining a real decryption with fallbacks is rejected with an
+  explanatory error, which xray-core forbids anyway.
+
+### Added (previously unreleased)
 
 - `config check` warns when `ApiHost` or `ApiKey` still holds the installed
   template's placeholder. Both values are syntactically valid, so the check used
   to pass and the node only failed later with an unreachable host.
 
-### Changed
+### Changed (previously unreleased)
 
 - The installed configuration template now matches what the code does.
   `EnableDNS` was documented as switching on `dns.json`; it actually switches the
